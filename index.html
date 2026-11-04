@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Rack42</title>
+    <script>
+      ;(() => {
+        try {
+          const stored = localStorage.getItem('rack42.theme') || 'system'
+          const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          document.documentElement.dataset.theme =
+            stored === 'system' ? (dark ? 'dark' : 'light') : stored
+          document.documentElement.style.colorScheme =
+            document.documentElement.dataset.theme
+        } catch {
+          document.documentElement.dataset.theme = 'dark'
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

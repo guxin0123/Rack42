@@ -1,0 +1,19 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.cache
+src-tauri/target
+src-tauri/gen
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# Local test machines / credentials (never commit)
+.secrets/
+.secrets.*
+*.secrets
+.env
+.env.*
+!.env.example

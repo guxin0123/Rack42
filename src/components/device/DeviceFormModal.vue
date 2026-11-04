@@ -1,0 +1,383 @@
+<script setup lang="ts">
+import { computed, reactive, ref, watch } from 'vue'
+
+import Modal from '@/components/ui/Modal.vue'
+import { deviceKindMeta } from '@/lib/format'
+import {
+  osFamilyGroups,
+  osFamilyOf,
+  osOptionsFor,
+} from '@/lib/os'
+import type { Device, DeviceKind, DeviceStatus, OsFamily } from '@/lib/types'
+import { useAppStore } from '@/stores/app'
+
+const props = defineProps<{
+  open: boolean
+  device?: Device | null
+  defaultRackId?: number | null
+  defaultPosition?: number | null
+}>()
+
+const emit = defineEmits<{ close: []; saved: [] }>()
+
+const store = useAppStore()
+const busy = ref(false)
+const error = ref('')
+
+const kinds = Object.entries(deviceKindMeta) as Array<
+  [DeviceKind, (typeof deviceKindMeta)[DeviceKind]]
+>
+
+const statuses: Array<{ value: DeviceStatus; label: string }> = [
+  { value: 'active', label: '运行中' },
+  { value: 'maintenance', label: '维护中' },
+  { value: 'offline', label: '已离线' },
+  { value: 'retired', label: '已退役' },
+]
+
+const form = reactive({
+  name: '',
+  kind: 'physical_server' as DeviceKind,
+  status: 'active' as DeviceStatus,
+  rackId: '',
+  rackPosition: '',
+  rackHeight: '1',
+  ips: [''] as string[],
+  mac: '',
+  vendor: '',
+  model: '',
+  serial: '',
+  osFamily: 'other' as OsFamily,
+  os: '',
+  hostId: '',
+  note: '',
+})
+
+const hostCandidates = computed(() =>
+  store.devices.filter(
+    (device) => device.kind === 'physical_server' && device.id !== props.device?.id,
+  ),
+)
+
+const currentOsOptions = computed(() => {
+  const options = osOptionsFor(form.osFamily)
+  if (form.os && !options.includes(form.os)) {
+    return [form.os, ...options]
+  }
+  return options
+})
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) return
+    error.value = ''
+    const device = props.device
+    form.name = device?.name ?? ''
+    form.kind = device?.kind ?? 'physical_server'
+    form.status = device?.status ?? 'active'
+    form.rackId = device?.rackId
+      ? String(device.rackId)
+      : props.defaultRackId
+        ? String(props.defaultRackId)
+        : ''
+    form.rackPosition = device?.rackPosition
+      ? String(device.rackPosition)
+      : props.defaultPosition
+        ? String(props.defaultPosition)
+        : ''
+    form.rackHeight = String(device?.rackHeight ?? 1)
+    form.ips = device?.ips?.length ? [...device.ips] : ['']
+    form.mac = device?.mac ?? ''
+    form.vendor = device?.vendor ?? ''
+    form.model = device?.model ?? ''
+    form.serial = device?.serial ?? ''
+    form.osFamily = device?.osFamily ?? osFamilyOf(device?.os)
+    form.os = device?.os ?? ''
+    form.hostId = device?.hostId ? String(device.hostId) : ''
+    form.note = device?.note ?? ''
+  },
+  { immediate: true },
+)
+
+function addIp(): void {
+  if (form.ips.length >= 16) return
+  form.ips.push('')
+}
+
+function removeIp(index: number): void {
+  if (form.ips.length <= 1) {
+    form.ips[0] = ''
+    return
+  }
+  form.ips.splice(index, 1)
+}
+
+function onFamilyChange(): void {
+  const options = osOptionsFor(form.osFamily)
+  if (!options.includes(form.os)) {
+    form.os = options[0] ?? ''
+  }
+}
+
+async function submit(): Promise<void> {
+  if (!form.name.trim()) {
+    error.value = '请输入设备名称'
+    return
+  }
+  if (form.rackId && !form.rackPosition) {
+    error.value = '放入机柜后需要填写起始 U 位'
+    return
+  }
+
+  busy.value = true
+  error.value = ''
+  try {
+    const ips = form.ips.map((ip) => ip.trim()).filter(Boolean)
+    const payload = {
+      name: form.name.trim(),
+      kind: form.kind,
+      status: form.status,
+      rackId: form.rackId ? Number(form.rackId) : null,
+      rackPosition: form.rackPosition ? Number(form.rackPosition) : null,
+      rackHeight: Number(form.rackHeight) || 1,
+      ips,
+      mac: form.mac.trim() || null,
+      vendor: form.vendor.trim() || null,
+      model: form.model.trim() || null,
+      serial: form.serial.trim() || null,
+      os: form.os.trim() || null,
+      osFamily: form.os.trim() ? form.osFamily : null,
+      hostId: form.hostId ? Number(form.hostId) : null,
+      note: form.note.trim() || null,
+    }
+    if (props.device) {
+      await store.updateDevice(props.device.id, payload)
+      store.notify('设备已更新')
+    } else {
+      await store.createDevice(payload)
+      store.notify('设备已创建')
+    }
+    emit('saved')
+    emit('close')
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : '保存失败'
+  } finally {
+    busy.value = false
+  }
+}
+</script>
+
+<template>
+  <Modal
+    :open="open"
+    :title="device ? '编辑设备' : '新增设备'"
+    width="max-w-3xl"
+    @close="$emit('close')"
+  >
+    <form class="space-y-5" @submit.prevent="submit">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="label" for="device-name">设备名称</label>
+          <input
+            id="device-name"
+            v-model="form.name"
+            class="input"
+            placeholder="如 esxi-01"
+            maxlength="60"
+          />
+        </div>
+        <div>
+          <label class="label" for="device-kind">类型</label>
+          <select id="device-kind" v-model="form.kind" class="input">
+            <option v-for="item in kinds" :key="item[0]" :value="item[0]">
+              {{ item[1].label }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-4">
+        <div>
+          <label class="label" for="device-rack">所属机柜</label>
+          <select id="device-rack" v-model="form.rackId" class="input">
+            <option value="">未放入机柜</option>
+            <option v-for="rack in store.racks" :key="rack.id" :value="String(rack.id)">
+              {{ rack.name }}（{{ rack.totalU }}U）
+            </option>
+          </select>
+        </div>
+        <div>
+          <label class="label" for="device-position">起始 U 位</label>
+          <input
+            id="device-position"
+            v-model="form.rackPosition"
+            class="input"
+            type="number"
+            min="1"
+            max="48"
+            placeholder="如 20"
+          />
+        </div>
+        <div>
+          <label class="label" for="device-height">占用 U 数</label>
+          <input
+            id="device-height"
+            v-model="form.rackHeight"
+            class="input"
+            type="number"
+            min="1"
+            max="48"
+          />
+        </div>
+      </div>
+
+      <div>
+        <div class="mb-1.5 flex items-center justify-between">
+          <span class="text-xs font-medium text-slate-400">IP 地址</span>
+          <button
+            type="button"
+            class="text-[11px] text-emerald-400 transition hover:text-emerald-300 disabled:opacity-40"
+            :disabled="form.ips.length >= 16"
+            @click="addIp"
+          >
+            + 添加 IP
+          </button>
+        </div>
+
+        <div class="space-y-2">
+          <div
+            v-for="(_, index) in form.ips"
+            :key="index"
+            class="flex items-center gap-2"
+          >
+            <span
+              class="w-14 shrink-0 text-[10px]"
+              :class="index === 0 ? 'font-medium text-emerald-300' : 'text-slate-500'"
+            >
+              {{ index === 0 ? '主 IP' : `备用 ${index}` }}
+            </span>
+            <input
+              v-model="form.ips[index]"
+              class="input flex-1"
+              :placeholder="index === 0 ? '如 10.0.0.21' : '备用 IP（可选）'"
+              autocomplete="off"
+            />
+            <button
+              type="button"
+              class="rounded-md px-2 py-1.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-300"
+              title="移除"
+              @click="removeIp(index)"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+        <p class="mt-1.5 text-[10px] text-slate-500">
+          第一个地址为主 IP，其余为备用；支持 IPv4 / IPv6，最多 16 个，重复地址会自动合并。
+        </p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="label" for="device-mac">MAC</label>
+          <input
+            id="device-mac"
+            v-model="form.mac"
+            class="input"
+            placeholder="如 00:1A:2B:3C:4D:5E"
+          />
+        </div>
+        <div>
+          <label class="label" for="device-vendor">厂商</label>
+          <input id="device-vendor" v-model="form.vendor" class="input" />
+        </div>
+        <div>
+          <label class="label" for="device-model">型号</label>
+          <input id="device-model" v-model="form.model" class="input" />
+        </div>
+        <div>
+          <label class="label" for="device-serial">序列号</label>
+          <input id="device-serial" v-model="form.serial" class="input" />
+        </div>
+        <div>
+          <label class="label" for="device-status">状态</label>
+          <select id="device-status" v-model="form.status" class="input">
+            <option v-for="status in statuses" :key="status.value" :value="status.value">
+              {{ status.label }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <div class="mb-1.5 flex items-center justify-between">
+          <span class="text-xs font-medium text-slate-400">操作系统</span>
+          <span class="text-[10px] text-slate-600">大类 → 具体版本</span>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="sr-only" for="device-os-family">系统大类</label>
+            <select
+              id="device-os-family"
+              v-model="form.osFamily"
+              class="input"
+              @change="onFamilyChange"
+            >
+              <option v-for="group in osFamilyGroups" :key="group.value" :value="group.value">
+                {{ group.label }}
+              </option>
+            </select>
+          </div>
+          <div>
+            <label class="sr-only" for="device-os">具体系统</label>
+            <select id="device-os" v-model="form.os" class="input">
+              <option value="">未指定</option>
+              <option v-for="os in currentOsOptions" :key="os" :value="os">
+                {{ os }}
+              </option>
+            </select>
+          </div>
+        </div>
+        <p class="mt-1.5 text-[10px] text-slate-500">
+          选择大类后，下方会列出对应的操作系统版本。
+        </p>
+      </div>
+
+      <div v-if="form.kind === 'vm'">
+        <label class="label" for="device-host">宿主机</label>
+        <select id="device-host" v-model="form.hostId" class="input">
+          <option value="">未指定</option>
+          <option v-for="host in hostCandidates" :key="host.id" :value="String(host.id)">
+            {{ host.name }}
+          </option>
+        </select>
+      </div>
+
+      <div>
+        <label class="label" for="device-note">备注</label>
+        <textarea
+          id="device-note"
+          v-model="form.note"
+          class="input resize-none"
+          rows="2"
+          placeholder="用途、责任人、维保信息…"
+        />
+      </div>
+
+      <p
+        v-if="error"
+        class="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"
+      >
+        {{ error }}
+      </p>
+    </form>
+
+    <template #footer>
+      <button class="btn btn-ghost" type="button" @click="$emit('close')">取消</button>
+      <button class="btn btn-primary" type="button" :disabled="busy" @click="submit">
+        {{ busy ? '保存中…' : device ? '保存修改' : '创建设备' }}
+      </button>
+    </template>
+  </Modal>
+</template>
