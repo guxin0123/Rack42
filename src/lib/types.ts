@@ -124,6 +124,26 @@ export interface CredentialInput {
   isDefault?: boolean
 }
 
+export interface ConnectionTypeSummary {
+  typeId: number
+  slug: string
+  name: string
+  icon: string
+  actions: CredentialAction[]
+  credentialCount: number
+  defaultCredentialId: number
+}
+
+export interface DeviceConnectionSummary {
+  deviceId: number
+  types: ConnectionTypeSummary[]
+}
+
+export interface ConnectResult {
+  action: string
+  target: string
+}
+
 export interface Link {
   id: number
   srcDeviceId: number

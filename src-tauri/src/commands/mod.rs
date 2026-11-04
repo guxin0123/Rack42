@@ -1,3 +1,4 @@
+pub mod connection;
 pub mod credential;
 pub mod credential_type;
 pub mod data;

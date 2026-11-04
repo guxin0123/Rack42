@@ -2,11 +2,14 @@ import { invoke } from '@tauri-apps/api/core'
 
 import type {
   BootstrapState,
+  ConnectResult,
   Credential,
+  CredentialAction,
   CredentialInput,
   CredentialType,
   CredentialTypeInput,
   Device,
+  DeviceConnectionSummary,
   DeviceInput,
   LayoutNode,
   Link,
@@ -43,6 +46,10 @@ export const api = {
   deleteRack: (id: number) => call<void>('delete_rack', { id }),
 
   listDevices: () => call<Device[]>('list_devices'),
+  listDeviceConnections: () =>
+    call<DeviceConnectionSummary[]>('list_device_connections'),
+  connectCredential: (credentialId: number, action: CredentialAction) =>
+    call<ConnectResult>('connect_credential', { credentialId, action }),
   createDevice: (input: DeviceInput) => call<Device>('create_device', { input }),
   updateDevice: (id: number, input: DeviceInput) =>
     call<Device>('update_device', { id, input }),

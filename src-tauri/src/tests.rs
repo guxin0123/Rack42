@@ -1,6 +1,7 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::SqlitePool;
 
+use crate::connections;
 use crate::crypto;
 use crate::models::credential::{CredentialInput, PasswordUpdate};
 use crate::models::credential_type::CredentialTypeInput;
@@ -376,6 +377,120 @@ async fn deleting_custom_type_reassigns_credentials() {
         .find(|item| item.slug == "rdp")
         .expect("rdp type");
     assert!(credential_types::delete(&pool, rdp.id).await.is_err());
+}
+
+#[tokio::test]
+async fn device_connection_summary_groups_types_and_defaults() {
+    let pool = test_pool().await;
+    let rack = racks::create(&pool, &rack_input("C05"))
+        .await
+        .expect("create rack");
+    let device = devices::create(
+        &pool,
+        &device_input("conn-summary", Some(rack.id), Some(1), 1),
+    )
+    .await
+    .expect("create device");
+
+    let types = credential_types::list(&pool).await.expect("list types");
+    let rdp = types
+        .iter()
+        .find(|item| item.slug == "rdp")
+        .expect("rdp type");
+    let web = types
+        .iter()
+        .find(|item| item.slug == "web")
+        .expect("web type");
+
+    let mut input = CredentialInput {
+        device_id: device.id,
+        type_id: Some(rdp.id),
+        label: Some("primary".to_string()),
+        address: None,
+        port: None,
+        username: Some("admin".to_string()),
+        domain: None,
+        password: None,
+        note: None,
+        is_default: true,
+    };
+    credentials::create(&pool, &input, None)
+        .await
+        .expect("create rdp primary");
+    input.label = Some("secondary".to_string());
+    input.is_default = false;
+    credentials::create(&pool, &input, None)
+        .await
+        .expect("create rdp secondary");
+
+    let web_input = CredentialInput {
+        device_id: device.id,
+        type_id: Some(web.id),
+        label: Some("web".to_string()),
+        address: Some("https://example.test".to_string()),
+        port: Some(443),
+        username: None,
+        domain: None,
+        password: None,
+        note: None,
+        is_default: true,
+    };
+    credentials::create(&pool, &web_input, None)
+        .await
+        .expect("create web credential");
+
+    let summary = connections::list_device_connections(&pool)
+        .await
+        .expect("list connections");
+    let device_summary = summary
+        .iter()
+        .find(|item| item.device_id == device.id)
+        .expect("device summary");
+    assert_eq!(device_summary.types.len(), 2);
+
+    let rdp_summary = device_summary
+        .types
+        .iter()
+        .find(|item| item.type_id == rdp.id)
+        .expect("rdp summary");
+    assert_eq!(rdp_summary.credential_count, 2);
+    assert!(rdp_summary.actions.contains(&"rdp".to_string()));
+
+    let web_summary = device_summary
+        .types
+        .iter()
+        .find(|item| item.type_id == web.id)
+        .expect("web summary");
+    assert_eq!(web_summary.credential_count, 1);
+    assert!(web_summary.actions.contains(&"web".to_string()));
+}
+
+#[tokio::test]
+async fn rdp_cleanup_removes_files_and_rows() {
+    let pool = test_pool().await;
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.cache/rdp-cleanup");
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let file = dir.join("stale.rdp");
+    std::fs::write(&file, "full address:s:example").expect("write temp rdp");
+
+    sqlx::query("INSERT INTO rdp_sessions (target, temp_path) VALUES (?, ?)")
+        .bind("example:3389")
+        .bind(file.to_string_lossy().to_string())
+        .execute(&pool)
+        .await
+        .expect("insert session");
+
+    connections::cleanup_pending(&pool)
+        .await
+        .expect("cleanup sessions");
+
+    assert!(!file.exists());
+    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rdp_sessions")
+        .fetch_one(&pool)
+        .await
+        .expect("count sessions");
+    assert_eq!(remaining, 0);
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

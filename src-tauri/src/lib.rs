@@ -1,4 +1,5 @@
 mod commands;
+mod connections;
 mod crypto;
 mod db;
 mod error;
@@ -109,6 +110,10 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let (database, data_dir) = tauri::async_runtime::block_on(db::init(&handle, portable))?;
 
+    if let Err(error) = tauri::async_runtime::block_on(connections::cleanup_pending(&database)) {
+        eprintln!("[rack42] RDP cleanup failed: {error}");
+    }
+
     // Keep WebView2 state next to the database so a broken default profile
     // (`EBWebView` under the identifier directory) cannot prevent startup.
     let webview_dir = data_dir.join("webview2");
@@ -156,6 +161,8 @@ pub fn run() {
             commands::rack::update_rack,
             commands::rack::delete_rack,
             commands::device::list_devices,
+            commands::connection::list_device_connections,
+            commands::connection::connect_credential,
             commands::device::create_device,
             commands::device::update_device,
             commands::device::delete_device,

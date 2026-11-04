@@ -5,6 +5,7 @@ import { api } from '@/lib/ipc'
 import type {
   CredentialType,
   Device,
+  DeviceConnectionSummary,
   DeviceInput,
   Link,
   LinkInput,
@@ -29,6 +30,7 @@ export const useAppStore = defineStore('app', () => {
   const devices = ref<Device[]>([])
   const links = ref<Link[]>([])
   const credentialTypes = ref<CredentialType[]>([])
+  const deviceConnections = ref<DeviceConnectionSummary[]>([])
   const stats = ref<Stats>({
     rackCount: 0,
     deviceCount: 0,
@@ -53,18 +55,26 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function refresh(): Promise<void> {
-    const [nextRacks, nextDevices, nextLinks, nextTypes, nextStats] =
-      await Promise.all([
-        api.listRacks(),
-        api.listDevices(),
-        api.listLinks(),
-        api.listCredentialTypes(),
-        api.stats(),
-      ])
+    const [
+      nextRacks,
+      nextDevices,
+      nextLinks,
+      nextTypes,
+      nextConnections,
+      nextStats,
+    ] = await Promise.all([
+      api.listRacks(),
+      api.listDevices(),
+      api.listLinks(),
+      api.listCredentialTypes(),
+      api.listDeviceConnections(),
+      api.stats(),
+    ])
     racks.value = nextRacks
     devices.value = nextDevices
     links.value = nextLinks
     credentialTypes.value = nextTypes
+    deviceConnections.value = nextConnections
     stats.value = nextStats
   }
 
@@ -171,6 +181,7 @@ export const useAppStore = defineStore('app', () => {
     devices,
     links,
     credentialTypes,
+    deviceConnections,
     stats,
     notice,
     rackById,

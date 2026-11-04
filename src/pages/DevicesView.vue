@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { Pencil, Plus, Search, Trash2 } from 'lucide-vue-next'
+import {
+  Globe,
+  Loader2,
+  Monitor,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+} from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -10,7 +18,13 @@ import {
   deviceStatusLabel,
   deviceStatusMeta,
 } from '@/lib/format'
-import type { Device, DeviceKind } from '@/lib/types'
+import { api } from '@/lib/ipc'
+import type {
+  ConnectionTypeSummary,
+  CredentialAction,
+  Device,
+  DeviceKind,
+} from '@/lib/types'
 import { useAppStore } from '@/stores/app'
 
 const store = useAppStore()
@@ -21,6 +35,34 @@ const kindFilter = ref<'all' | DeviceKind>('all')
 const rackFilter = ref<'all' | 'unassigned' | number>('all')
 const formOpen = ref(false)
 const editing = ref<Device | null>(null)
+const connectingKey = ref('')
+
+function connectionActions(type: ConnectionTypeSummary): Array<'rdp' | 'web'> {
+  return type.actions.filter(
+    (action): action is 'rdp' | 'web' => action === 'rdp' || action === 'web',
+  )
+}
+
+function connectionTypes(deviceId: number): ConnectionTypeSummary[] {
+  const types =
+    store.deviceConnections.find((item) => item.deviceId === deviceId)?.types ?? []
+  return types.filter((type) => connectionActions(type).length > 0)
+}
+
+async function connect(type: ConnectionTypeSummary, action: CredentialAction): Promise<void> {
+  const key = `${type.typeId}-${action}`
+  if (connectingKey.value) return
+  connectingKey.value = key
+
+  try {
+    await api.connectCredential(type.defaultCredentialId, action)
+    store.notify(action === 'rdp' ? '已启动远程桌面' : '已在浏览器中打开')
+  } catch (caught) {
+    store.notify(caught instanceof Error ? caught.message : '连接失败')
+  } finally {
+    connectingKey.value = ''
+  }
+}
 
 const kindOptions = Object.entries(deviceKindMeta).map(([value, meta]) => ({
   value: value as DeviceKind,
@@ -127,7 +169,7 @@ async function removeDevice(device: Device): Promise<void> {
       </select>
     </div>
 
-    <div class="card overflow-hidden">
+    <div class="card overflow-x-auto">
       <table v-if="filtered.length" class="w-full text-left text-xs">
         <thead class="text-[10px] uppercase tracking-wider text-slate-500">
           <tr class="border-b border-white/5">
@@ -192,6 +234,26 @@ async function removeDevice(device: Device): Promise<void> {
             </td>
             <td class="px-5 py-3">
               <div class="flex justify-end gap-1">
+                <template
+                  v-for="type in connectionTypes(device.id)"
+                  :key="type.typeId"
+                >
+                  <button
+                    v-for="action in connectionActions(type)"
+                    :key="`${type.typeId}-${action}`"
+                    class="rounded-md p-1.5 text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
+                    :title="`${type.name}：${action === 'rdp' ? '远程桌面' : '打开 Web'}（${type.credentialCount} 条凭据，使用默认凭据）`"
+                    :disabled="connectingKey === `${type.typeId}-${action}`"
+                    @click="connect(type, action)"
+                  >
+                    <Loader2
+                      v-if="connectingKey === `${type.typeId}-${action}`"
+                      class="h-3.5 w-3.5 animate-spin"
+                    />
+                    <Monitor v-else-if="action === 'rdp'" class="h-3.5 w-3.5" />
+                    <Globe v-else class="h-3.5 w-3.5" />
+                  </button>
+                </template>
                 <button
                   class="rounded-md p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-slate-200"
                   title="编辑"
