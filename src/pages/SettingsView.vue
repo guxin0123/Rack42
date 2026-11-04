@@ -4,17 +4,21 @@ import {
   Database,
   Download,
   FolderOpen,
+  FolderUp,
   Github,
   Lock,
   Monitor,
   Moon,
   Palette,
+  Save,
   ShieldCheck,
   Sun,
+  Terminal,
 } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 
 import { api } from '@/lib/ipc'
+import type { SftpClient, SshClient } from '@/lib/types'
 import { useAppStore } from '@/stores/app'
 import { useThemeStore } from '@/stores/theme'
 
@@ -29,6 +33,104 @@ const themeOptions = [
 
 const exporting = ref(false)
 const exportedPath = ref('')
+
+const sshClients: Array<{ value: SshClient; label: string }> = [
+  { value: 'openssh', label: 'Windows OpenSSH' },
+  { value: 'xshell', label: 'Xshell 7.x' },
+  { value: 'putty', label: 'PuTTY' },
+]
+
+const sftpClients: Array<{ value: SftpClient; label: string }> = [
+  { value: 'openssh', label: 'Windows OpenSSH sftp' },
+  { value: 'xftp', label: 'Xftp 7.x' },
+  { value: 'psftp', label: 'psftp' },
+]
+
+const connection = reactive({
+  sshClient: 'openssh' as SshClient,
+  sshPath: '',
+  sftpClient: 'openssh' as SftpClient,
+  sftpPath: '',
+  autoFillPassword: false,
+})
+
+const loadingConnection = ref(true)
+const savingConnection = ref(false)
+const detectingClient = ref('')
+
+onMounted(() => {
+  void loadConnectionSettings()
+})
+
+async function loadConnectionSettings(): Promise<void> {
+  loadingConnection.value = true
+  try {
+    const settings = await api.getConnectionSettings()
+    connection.sshClient = settings.sshClient
+    connection.sshPath = settings.sshPath ?? ''
+    connection.sftpClient = settings.sftpClient
+    connection.sftpPath = settings.sftpPath ?? ''
+    connection.autoFillPassword = settings.autoFillPassword
+  } catch (caught) {
+    store.notify(caught instanceof Error ? caught.message : '加载连接设置失败')
+  } finally {
+    loadingConnection.value = false
+  }
+}
+
+async function saveConnectionSettings(): Promise<void> {
+  savingConnection.value = true
+  try {
+    await api.updateConnectionSettings({
+      sshClient: connection.sshClient,
+      sshPath: connection.sshPath.trim() || null,
+      sftpClient: connection.sftpClient,
+      sftpPath: connection.sftpPath.trim() || null,
+      autoFillPassword: connection.autoFillPassword,
+    })
+    store.notify('远程连接设置已保存')
+  } catch (caught) {
+    store.notify(caught instanceof Error ? caught.message : '保存连接设置失败')
+  } finally {
+    savingConnection.value = false
+  }
+}
+
+async function detectSshClient(): Promise<void> {
+  detectingClient.value = 'ssh'
+  try {
+    const path = await api.detectClientPath(connection.sshClient)
+    if (path) {
+      connection.sshPath = path
+      store.notify('已检测到 SSH 客户端')
+    } else {
+      store.notify('未自动检测到 SSH 客户端，请手动填写路径')
+    }
+  } catch (caught) {
+    store.notify(caught instanceof Error ? caught.message : '检测客户端失败')
+  } finally {
+    detectingClient.value = ''
+  }
+}
+
+async function detectSftpClient(): Promise<void> {
+  detectingClient.value = 'sftp'
+  try {
+    const client =
+      connection.sftpClient === 'openssh' ? 'openssh-sftp' : connection.sftpClient
+    const path = await api.detectClientPath(client)
+    if (path) {
+      connection.sftpPath = path
+      store.notify('已检测到 SFTP 客户端')
+    } else {
+      store.notify('未自动检测到 SFTP 客户端，请手动填写路径')
+    }
+  } catch (caught) {
+    store.notify(caught instanceof Error ? caught.message : '检测客户端失败')
+  } finally {
+    detectingClient.value = ''
+  }
+}
 
 async function lockNow(): Promise<void> {
   try {
@@ -65,7 +167,7 @@ async function exportData(): Promise<void> {
   <div class="mx-auto max-w-4xl space-y-5">
     <div>
       <h2 class="text-base font-semibold tracking-tight text-slate-100">设置</h2>
-      <p class="mt-1 text-xs text-slate-500">安全状态、主题、数据目录与导出</p>
+      <p class="mt-1 text-xs text-slate-500">安全状态、主题、远程连接、数据目录与导出</p>
     </div>
 
     <section class="card p-5">
@@ -148,6 +250,126 @@ async function exportData(): Promise<void> {
           <p class="mt-2 text-xs font-medium text-slate-200">{{ option.label }}</p>
           <p class="mt-0.5 text-[10px] text-slate-500">{{ option.description }}</p>
         </button>
+      </div>
+    </section>
+
+    <section class="card p-5">
+      <div class="flex items-start gap-3">
+        <div
+          class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20"
+        >
+          <Terminal class="h-4 w-4" />
+        </div>
+        <div>
+          <h3 class="text-xs font-semibold tracking-wide text-slate-200">远程连接</h3>
+          <p class="mt-1 text-[11px] leading-5 text-slate-500">
+            SSH/SFTP 默认只传主机、端口和用户名，密码由客户端询问；自动填充默认关闭。
+          </p>
+        </div>
+      </div>
+
+      <div v-if="loadingConnection" class="mt-4 text-[11px] text-slate-500">
+        加载连接设置…
+      </div>
+
+      <div v-else class="mt-4 space-y-4">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div>
+            <label class="label" for="ssh-client">SSH 客户端</label>
+            <select id="ssh-client" v-model="connection.sshClient" class="input">
+              <option v-for="option in sshClients" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+          <div class="md:col-span-2">
+            <label class="label" for="ssh-path">SSH 客户端路径</label>
+            <div class="flex gap-2">
+              <input
+                id="ssh-path"
+                v-model="connection.sshPath"
+                class="input min-w-0 flex-1"
+                placeholder="留空自动检测，例如 C:\Program Files\PuTTY\putty.exe"
+                spellcheck="false"
+              />
+              <button
+                class="btn btn-ghost shrink-0"
+                :disabled="detectingClient === 'ssh'"
+                @click="detectSshClient"
+              >
+                <FolderOpen class="h-3.5 w-3.5" />
+                {{ detectingClient === 'ssh' ? '检测中…' : '检测' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div>
+            <label class="label flex items-center gap-1.5" for="sftp-client">
+              <FolderUp class="h-3 w-3" />
+              SFTP 客户端
+            </label>
+            <select id="sftp-client" v-model="connection.sftpClient" class="input">
+              <option v-for="option in sftpClients" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+          <div class="md:col-span-2">
+            <label class="label" for="sftp-path">SFTP 客户端路径</label>
+            <div class="flex gap-2">
+              <input
+                id="sftp-path"
+                v-model="connection.sftpPath"
+                class="input min-w-0 flex-1"
+                placeholder="留空自动检测，例如 C:\Program Files\PuTTY\psftp.exe"
+                spellcheck="false"
+              />
+              <button
+                class="btn btn-ghost shrink-0"
+                :disabled="detectingClient === 'sftp'"
+                @click="detectSftpClient"
+              >
+                <FolderOpen class="h-3.5 w-3.5" />
+                {{ detectingClient === 'sftp' ? '检测中…' : '检测' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <label class="flex items-start gap-2 text-[11px] text-slate-400">
+          <input
+            v-model="connection.autoFillPassword"
+            type="checkbox"
+            class="mt-0.5 accent-emerald-500"
+          />
+          <span>
+            自动填充密码到命令行
+            <span class="block text-[10px] text-slate-600">
+              默认关闭。Windows OpenSSH 不支持此方式，始终由控制台提示密码。
+            </span>
+          </span>
+        </label>
+
+        <p
+          v-if="connection.autoFillPassword"
+          class="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[11px] leading-5 text-rose-300"
+        >
+          密码会出现在 Xshell / PuTTY / Xftp / psftp 的命令行中，可能被其他进程或审计工具读取。
+          仅建议在隔离测试环境使用；日常使用请保持关闭，由客户端弹窗输入。
+        </p>
+
+        <p class="text-[10px] text-slate-600">
+          绿色版 Xshell/Xftp 不在 PATH 时需手动填写可执行文件路径；保存时会校验文件名和是否存在。
+        </p>
+
+        <div class="flex justify-end border-t border-white/5 pt-4">
+          <button class="btn btn-primary" :disabled="savingConnection" @click="saveConnectionSettings">
+            <Save class="h-3.5 w-3.5" />
+            {{ savingConnection ? '保存中…' : '保存连接设置' }}
+          </button>
+        </div>
       </div>
     </section>
 

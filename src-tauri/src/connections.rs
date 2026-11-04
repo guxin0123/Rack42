@@ -11,6 +11,7 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::crypto;
 use crate::error::{AppError, AppResult};
 use crate::repository::{credential_types, credentials, devices};
+use crate::ssh;
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -123,10 +124,8 @@ pub async fn connect_credential(
     credential_id: i64,
     action: &str,
 ) -> AppResult<ConnectResult> {
-    if action != "rdp" && action != "web" {
-        return Err(AppError::Validation(
-            "SSH/SFTP 连接将在 Phase 3 支持".to_string(),
-        ));
+    if !matches!(action, "rdp" | "web" | "ssh" | "sftp") {
+        return Err(AppError::Validation("未知的远程连接动作".to_string()));
     }
 
     let credential = credentials::get(&state.db, credential_id).await?;
@@ -150,10 +149,15 @@ pub async fn connect_credential(
         .or_else(|| device.ips.first().cloned())
         .ok_or_else(|| AppError::Validation("未配置地址，且设备没有主 IP".to_string()))?;
 
+    let default_port = match action {
+        "rdp" => 3389,
+        "web" => 443,
+        _ => 22,
+    };
     let port = credential
         .port
         .or(credential_type.default_port)
-        .unwrap_or(if action == "rdp" { 3389 } else { 443 });
+        .unwrap_or(default_port);
 
     if !(1..=65535).contains(&port) {
         return Err(AppError::Validation(
@@ -167,6 +171,31 @@ pub async fn connect_credential(
         return Ok(ConnectResult {
             action: action.to_string(),
             target: url,
+        });
+    }
+
+    if action == "ssh" || action == "sftp" {
+        let settings = ssh::load(&state.db).await?;
+        let password = if settings.auto_fill_password && credential.has_password {
+            let cipher = credentials::cipher_for(&state.db, credential_id).await?;
+            let key = state.require_key()?;
+            Some(Zeroizing::new(crypto::decrypt(&key, &cipher)?))
+        } else {
+            None
+        };
+
+        ssh::launch(
+            &settings,
+            action,
+            &address,
+            port,
+            credential.username.as_deref().unwrap_or(""),
+            password.as_ref().map(|value| value.as_str()),
+        )?;
+
+        return Ok(ConnectResult {
+            action: action.to_string(),
+            target: format!("{address}:{port}"),
         });
     }
 

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import {
+  FolderUp,
   Globe,
   Loader2,
   Monitor,
   Pencil,
   Plus,
   Search,
+  Terminal,
   Trash2,
 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
@@ -37,10 +39,22 @@ const formOpen = ref(false)
 const editing = ref<Device | null>(null)
 const connectingKey = ref('')
 
-function connectionActions(type: ConnectionTypeSummary): Array<'rdp' | 'web'> {
-  return type.actions.filter(
-    (action): action is 'rdp' | 'web' => action === 'rdp' || action === 'web',
-  )
+function connectionActions(type: ConnectionTypeSummary): CredentialAction[] {
+  return type.actions
+}
+
+const actionLabels: Record<string, string> = {
+  rdp: '远程桌面',
+  web: '打开 Web',
+  ssh: 'SSH 终端',
+  sftp: 'SFTP 文件传输',
+}
+
+const actionStarted: Record<string, string> = {
+  rdp: '已启动远程桌面',
+  web: '已在浏览器中打开',
+  ssh: '已启动 SSH 终端',
+  sftp: '已启动 SFTP 客户端',
 }
 
 function connectionTypes(deviceId: number): ConnectionTypeSummary[] {
@@ -56,7 +70,7 @@ async function connect(type: ConnectionTypeSummary, action: CredentialAction): P
 
   try {
     await api.connectCredential(type.defaultCredentialId, action)
-    store.notify(action === 'rdp' ? '已启动远程桌面' : '已在浏览器中打开')
+    store.notify(actionStarted[action] ?? '已启动连接')
   } catch (caught) {
     store.notify(caught instanceof Error ? caught.message : '连接失败')
   } finally {
@@ -242,7 +256,7 @@ async function removeDevice(device: Device): Promise<void> {
                     v-for="action in connectionActions(type)"
                     :key="`${type.typeId}-${action}`"
                     class="rounded-md p-1.5 text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
-                    :title="`${type.name}：${action === 'rdp' ? '远程桌面' : '打开 Web'}（${type.credentialCount} 条凭据，使用默认凭据）`"
+                    :title="`${type.name}：${actionLabels[action] ?? action}（${type.credentialCount} 条凭据，使用默认凭据）`"
                     :disabled="connectingKey === `${type.typeId}-${action}`"
                     @click="connect(type, action)"
                   >
@@ -251,7 +265,9 @@ async function removeDevice(device: Device): Promise<void> {
                       class="h-3.5 w-3.5 animate-spin"
                     />
                     <Monitor v-else-if="action === 'rdp'" class="h-3.5 w-3.5" />
-                    <Globe v-else class="h-3.5 w-3.5" />
+                    <Globe v-else-if="action === 'web'" class="h-3.5 w-3.5" />
+                    <Terminal v-else-if="action === 'ssh'" class="h-3.5 w-3.5" />
+                    <FolderUp v-else class="h-3.5 w-3.5" />
                   </button>
                 </template>
                 <button

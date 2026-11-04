@@ -1,6 +1,8 @@
 # Rack42 凭据类型与远程连接改造计划
 
-> 状态：Phase 0/1/2 已完成（RDP/Web），Phase 3 待进行
+> 状态：Phase 0/1/2/3 已完成（RDP/Web/SSH/SFTP），Phase 4 待进行
+>
+> 验证报告：[Phase 0](phase0-report.md) · [Phase 3](phase3-report.md)
 > 版本：v0.1（定稿）
 > 范围：凭据类型、凭据地址/端口、设备内凭据管理、设备列表连接入口、RDP/SSH/SFTP/浏览器启动器
 > 目标平台：Windows 10/11（Tauri 2 + Rust + Vue 3）
@@ -343,14 +345,14 @@ copy_credential_password(credential_id) -> ()   // 可选：写剪贴板，不�
 - [x] `0003` 迁移：凭据类型种子、凭据地址/端口/域/默认项、删除 `config_addr`
 - [x] 凭据类型表/种子/后端 CRUD
 - [x] 凭据字段扩展与空密码
-- [x] Phase 0 技术验证报告（RDP 通过；SSH/SFTP 客户端语法已验，端到端待 Linux 测试机）
+- [x] Phase 0 技术验证报告（RDP/SSH/SFTP 均完成实操）
 - [x] 凭据表单支持类型、地址、端口、域、默认项
 - [x] 地址跟随主 IP、端口回退
 - [x] RDP 启动器与清理
 - [x] 浏览器打开与 URL 校验
-- [x] 设备列表连接按钮（RDP/Web，使用默认凭据；多凭据菜单留待 Phase 4）
-- [ ] PuTTY/Xshell/psftp/Xftp/OpenSSH 参数构造
-- [ ] 连接设置页与路径校验
+- [x] PuTTY/Xshell/psftp/Xftp/OpenSSH 参数构造
+- [x] 连接设置页与路径校验
+- [x] 设备列表连接按钮（RDP/Web/SSH/SFTP，使用默认凭据；多凭据菜单留待 Phase 4）
 - [ ] 设备编辑凭据标签页
 - [ ] 类型管理与图标 UI
 - [ ] 自定义图标

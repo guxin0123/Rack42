@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type {
   BootstrapState,
   ConnectResult,
+  ConnectionSettings,
   Credential,
   CredentialAction,
   CredentialInput,
@@ -50,6 +51,15 @@ export const api = {
     call<DeviceConnectionSummary[]>('list_device_connections'),
   connectCredential: (credentialId: number, action: CredentialAction) =>
     call<ConnectResult>('connect_credential', { credentialId, action }),
+
+  getConnectionSettings: () =>
+    call<ConnectionSettings>('get_connection_settings'),
+  updateConnectionSettings: (input: ConnectionSettings) =>
+    call<ConnectionSettings>('update_connection_settings', { input }),
+  detectClientPath: (client: string) =>
+    call<string | null>('detect_client_path', { client }),
+  testConnectionClient: (client: string, path: string | null) =>
+    call<string>('test_connection_client', { client, path }),
   createDevice: (input: DeviceInput) => call<Device>('create_device', { input }),
   updateDevice: (id: number, input: DeviceInput) =>
     call<Device>('update_device', { id, input }),

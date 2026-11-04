@@ -144,6 +144,18 @@ export interface ConnectResult {
   target: string
 }
 
+export type SshClient = 'xshell' | 'putty' | 'openssh'
+
+export type SftpClient = 'xftp' | 'psftp' | 'openssh'
+
+export interface ConnectionSettings {
+  sshClient: SshClient
+  sshPath: string | null
+  sftpClient: SftpClient
+  sftpPath: string | null
+  autoFillPassword: boolean
+}
+
 export interface Link {
   id: number
   srcDeviceId: number

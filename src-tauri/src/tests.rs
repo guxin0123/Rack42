@@ -10,6 +10,7 @@ use crate::models::layout::LayoutNode;
 use crate::models::link::LinkInput;
 use crate::models::rack::RackInput;
 use crate::repository::{credential_types, credentials, devices, layout, links, racks};
+use crate::ssh;
 
 async fn test_pool_without_migrations() -> SqlitePool {
     let options = SqliteConnectOptions::new()
@@ -463,6 +464,38 @@ async fn device_connection_summary_groups_types_and_defaults() {
         .expect("web summary");
     assert_eq!(web_summary.credential_count, 1);
     assert!(web_summary.actions.contains(&"web".to_string()));
+}
+
+#[tokio::test]
+async fn connection_settings_default_and_roundtrip() {
+    let pool = test_pool().await;
+
+    let defaults = ssh::load(&pool).await.expect("load defaults");
+    assert_eq!(defaults.ssh_client, "openssh");
+    assert_eq!(defaults.sftp_client, "openssh");
+    assert!(!defaults.auto_fill_password);
+    assert_eq!(defaults.ssh_path, None);
+
+    let saved = ssh::save(
+        &pool,
+        ssh::ConnectionSettings {
+            ssh_client: "putty".to_string(),
+            ssh_path: None,
+            sftp_client: "psftp".to_string(),
+            sftp_path: None,
+            auto_fill_password: true,
+        },
+    )
+    .await
+    .expect("save settings");
+
+    assert_eq!(saved.ssh_client, "putty");
+    assert!(saved.auto_fill_password);
+
+    let loaded = ssh::load(&pool).await.expect("reload settings");
+    assert_eq!(loaded.ssh_client, "putty");
+    assert_eq!(loaded.sftp_client, "psftp");
+    assert!(loaded.auto_fill_password);
 }
 
 #[tokio::test]

@@ -5,6 +5,7 @@ mod db;
 mod error;
 mod models;
 mod repository;
+mod ssh;
 mod state;
 
 #[cfg(test)]
@@ -163,6 +164,10 @@ pub fn run() {
             commands::device::list_devices,
             commands::connection::list_device_connections,
             commands::connection::connect_credential,
+            commands::connection::get_connection_settings,
+            commands::connection::update_connection_settings,
+            commands::connection::detect_client_path,
+            commands::connection::test_connection_client,
             commands::device::create_device,
             commands::device::update_device,
             commands::device::delete_device,
