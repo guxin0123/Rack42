@@ -366,6 +366,23 @@ fn open_url(url: &str) -> AppResult<()> {
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
+    // Prefer the browser executable from the default URL association. Some
+    // Chrome installations register a broken `--single-argument` handler:
+    // ShellExecuteW then reports success without launching anything.
+    if let Some(browser) = default_browser_exe() {
+        if launch_browser(&browser, url) {
+            return Ok(());
+        }
+    }
+
+    // If the association is missing/unusable, fall back to a known browser
+    // before trying the shell again.
+    for browser in known_browser_paths() {
+        if launch_browser(&browser, url) {
+            return Ok(());
+        }
+    }
+
     let operation: Vec<u16> = "open\0".encode_utf16().collect();
     let file: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
 
@@ -386,6 +403,101 @@ fn open_url(url: &str) -> AppResult<()> {
     }
 
     Ok(())
+}
+
+#[cfg(windows)]
+fn launch_browser(browser: &Path, url: &str) -> bool {
+    let name = browser
+        .file_name()
+        .map(|value| value.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+
+    let mut command = Command::new(browser);
+    match name.as_str() {
+        "chrome.exe" | "msedge.exe" | "brave.exe" | "chromium.exe" | "vivaldi.exe" => {
+            // A visible window is more reliable than handing a URL to an
+            // existing browser process (and avoids Chrome's broken
+            // --single-argument association on affected installs).
+            command.arg("--new-window");
+        }
+        "firefox.exe" => {
+            command.arg("-new-window");
+        }
+        _ => {}
+    }
+
+    command.arg(url).spawn().is_ok()
+}
+
+#[cfg(windows)]
+fn default_browser_exe() -> Option<PathBuf> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+
+    let user_choice = hkcu
+        .open_subkey_with_flags(
+            r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
+            KEY_READ,
+        )
+        .ok()?;
+    let prog_id: String = user_choice.get_value("ProgId").ok()?;
+    if prog_id.is_empty() {
+        return None;
+    }
+
+    let command_path = format!(r"Software\Classes\{prog_id}\shell\open\command");
+    let command = [&hkcu, &hklm]
+        .into_iter()
+        .filter_map(|root| {
+            root.open_subkey_with_flags(&command_path, KEY_READ)
+                .ok()
+                .and_then(|key| key.get_value::<String, _>("").ok())
+        })
+        .find(|value| !value.trim().is_empty())?;
+
+    command_executable(&command)
+}
+
+#[cfg(windows)]
+fn command_executable(command: &str) -> Option<PathBuf> {
+    let command = command.trim();
+    let executable = if let Some(rest) = command.strip_prefix('"') {
+        &rest[..rest.find('"')?]
+    } else {
+        command.split_whitespace().next()?
+    };
+
+    let path = PathBuf::from(executable);
+    path.is_file().then_some(path)
+}
+
+#[cfg(windows)]
+fn known_browser_paths() -> Vec<PathBuf> {
+    let program_files = std::env::var_os("ProgramFiles")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
+    let program_files_x86 = std::env::var_os("ProgramFiles(x86)")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files (x86)"));
+    let local_app_data = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+
+    [
+        program_files_x86.join(r"Microsoft\Edge\Application\msedge.exe"),
+        program_files.join(r"Microsoft\Edge\Application\msedge.exe"),
+        program_files.join(r"Google\Chrome\Application\chrome.exe"),
+        program_files_x86.join(r"Google\Chrome\Application\chrome.exe"),
+        local_app_data.join(r"Google\Chrome\Application\chrome.exe"),
+        program_files.join(r"Mozilla Firefox\firefox.exe"),
+        program_files_x86.join(r"Mozilla Firefox\firefox.exe"),
+    ]
+    .into_iter()
+    .filter(|path| path.is_file())
+    .collect()
 }
 
 #[cfg(not(windows))]
