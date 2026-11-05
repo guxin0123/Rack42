@@ -238,7 +238,7 @@ async fn dispatch(
 ) -> AppResult<ConnectResult> {
     if action == "web" {
         let url = build_web_url(address, port)?;
-        open::that(url.as_str()).map_err(AppError::Io)?;
+        open_url(&url)?;
         return Ok(ConnectResult {
             action: action.to_string(),
             target: url,
@@ -359,6 +359,38 @@ fn audit_target(action: &str, address: &str, port: i64) -> String {
 
 fn truncate(value: &str, limit: usize) -> String {
     value.chars().take(limit).collect()
+}
+
+#[cfg(windows)]
+fn open_url(url: &str) -> AppResult<()> {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let operation: Vec<u16> = "open\0".encode_utf16().collect();
+    let file: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
+
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+
+    // ShellExecuteW returns a value <= 32 on failure.
+    if (result as isize) <= 32 {
+        return Err(AppError::Io(std::io::Error::last_os_error()));
+    }
+
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn open_url(url: &str) -> AppResult<()> {
+    open::that(url).map_err(AppError::Io)
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
