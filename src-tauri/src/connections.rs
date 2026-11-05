@@ -412,21 +412,57 @@ fn launch_browser(browser: &Path, url: &str) -> bool {
         .map(|value| value.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
 
-    let mut command = Command::new(browser);
-    match name.as_str() {
+    let parameters = match name.as_str() {
         "chrome.exe" | "msedge.exe" | "brave.exe" | "chromium.exe" | "vivaldi.exe" => {
-            // A visible window is more reliable than handing a URL to an
-            // existing browser process (and avoids Chrome's broken
-            // --single-argument association on affected installs).
-            command.arg("--new-window");
+            format!("--new-window \"{url}\"")
         }
-        "firefox.exe" => {
-            command.arg("-new-window");
-        }
-        _ => {}
+        "firefox.exe" => format!("-new-window \"{url}\""),
+        _ => format!("\"{url}\""),
+    };
+
+    if shell_execute_browser(browser, &parameters) {
+        return true;
     }
 
+    let mut command = Command::new(browser);
+    if parameters.starts_with("--new-window") {
+        command.arg("--new-window");
+    } else if parameters.starts_with("-new-window") {
+        command.arg("-new-window");
+    }
     command.arg(url).spawn().is_ok()
+}
+
+#[cfg(windows)]
+fn shell_execute_browser(browser: &Path, parameters: &str) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let operation: Vec<u16> = "open\0".encode_utf16().collect();
+    let file: Vec<u16> = browser
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let params: Vec<u16> = parameters
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            params.as_ptr(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+
+    (result as isize) > 32
 }
 
 #[cfg(windows)]
