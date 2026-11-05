@@ -456,6 +456,13 @@ async fn device_connection_summary_groups_types_and_defaults() {
         .expect("rdp summary");
     assert_eq!(rdp_summary.credential_count, 2);
     assert!(rdp_summary.actions.contains(&"rdp".to_string()));
+    assert_eq!(rdp_summary.credentials.len(), 2);
+    assert!(rdp_summary.credentials[0].is_default);
+    assert_eq!(
+        rdp_summary.default_credential_id,
+        rdp_summary.credentials[0].id
+    );
+    assert_eq!(rdp_summary.credentials[0].label.as_deref(), Some("primary"));
 
     let web_summary = device_summary
         .types
@@ -464,6 +471,40 @@ async fn device_connection_summary_groups_types_and_defaults() {
         .expect("web summary");
     assert_eq!(web_summary.credential_count, 1);
     assert!(web_summary.actions.contains(&"web".to_string()));
+}
+
+#[tokio::test]
+async fn custom_type_icons_accept_raster_and_reject_svg() {
+    let pool = test_pool().await;
+
+    let raster = credential_types::create(
+        &pool,
+        &CredentialTypeInput {
+            name: "Raster Icon".to_string(),
+            slug: Some("raster-icon".to_string()),
+            icon: Some("data:image/png;base64,iVBORw0KGgo=".to_string()),
+            actions: vec![],
+            default_port: None,
+            sort_order: Some(80),
+        },
+    )
+    .await
+    .expect("create raster icon type");
+    assert!(raster.icon.starts_with("data:image/png;base64,"));
+
+    let svg = credential_types::create(
+        &pool,
+        &CredentialTypeInput {
+            name: "SVG Icon".to_string(),
+            slug: Some("svg-icon".to_string()),
+            icon: Some("data:image/svg+xml;base64,PHN2Zz4=".to_string()),
+            actions: vec![],
+            default_port: None,
+            sort_order: Some(81),
+        },
+    )
+    .await;
+    assert!(svg.is_err());
 }
 
 #[tokio::test]

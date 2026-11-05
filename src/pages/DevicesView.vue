@@ -14,6 +14,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import DeviceFormModal from '@/components/device/DeviceFormModal.vue'
+import Modal from '@/components/ui/Modal.vue'
 import {
   deviceKindLabel,
   deviceKindMeta,
@@ -22,6 +23,7 @@ import {
 } from '@/lib/format'
 import { api } from '@/lib/ipc'
 import type {
+  ConnectionCredentialSummary,
   ConnectionTypeSummary,
   CredentialAction,
   Device,
@@ -38,6 +40,11 @@ const rackFilter = ref<'all' | 'unassigned' | number>('all')
 const formOpen = ref(false)
 const editing = ref<Device | null>(null)
 const connectingKey = ref('')
+const chooserOpen = ref(false)
+const chooser = ref<{
+  type: ConnectionTypeSummary
+  action: CredentialAction
+} | null>(null)
 
 function connectionActions(type: ConnectionTypeSummary): CredentialAction[] {
   return type.actions
@@ -64,12 +71,38 @@ function connectionTypes(deviceId: number): ConnectionTypeSummary[] {
 }
 
 async function connect(type: ConnectionTypeSummary, action: CredentialAction): Promise<void> {
-  const key = `${type.typeId}-${action}`
+  if (type.credentials.length > 1) {
+    chooser.value = { type, action }
+    chooserOpen.value = true
+    return
+  }
+
+  const credentialId = type.credentials[0]?.id ?? type.defaultCredentialId
+  await startConnection(credentialId, action, `${type.typeId}-${action}`)
+}
+
+async function chooseCredential(credential: ConnectionCredentialSummary): Promise<void> {
+  const context = chooser.value
+  chooserOpen.value = false
+  chooser.value = null
+  if (!context) return
+  await startConnection(
+    credential.id,
+    context.action,
+    `${context.type.typeId}-${context.action}`,
+  )
+}
+
+async function startConnection(
+  credentialId: number,
+  action: CredentialAction,
+  key: string,
+): Promise<void> {
   if (connectingKey.value) return
   connectingKey.value = key
 
   try {
-    await api.connectCredential(type.defaultCredentialId, action)
+    await api.connectCredential(credentialId, action)
     store.notify(actionStarted[action] ?? '已启动连接')
   } catch (caught) {
     store.notify(caught instanceof Error ? caught.message : '连接失败')
@@ -256,7 +289,7 @@ async function removeDevice(device: Device): Promise<void> {
                     v-for="action in connectionActions(type)"
                     :key="`${type.typeId}-${action}`"
                     class="rounded-md p-1.5 text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
-                    :title="`${type.name}：${actionLabels[action] ?? action}（${type.credentialCount} 条凭据，使用默认凭据）`"
+                    :title="`${type.name}：${actionLabels[action] ?? action}（${type.credentialCount} 条凭据${type.credentialCount > 1 ? '，点击选择' : ''}）`"
                     :disabled="connectingKey === `${type.typeId}-${action}`"
                     @click="connect(type, action)"
                   >
@@ -321,5 +354,42 @@ async function removeDevice(device: Device): Promise<void> {
       @close="formOpen = false"
       @saved="formOpen = false"
     />
+
+    <Modal
+      :open="chooserOpen"
+      title="选择凭据"
+      width="max-w-md"
+      @close="chooserOpen = false"
+    >
+      <div v-if="chooser" class="space-y-2">
+        <p class="mb-3 text-[11px] text-slate-500">
+          {{ chooser.type.name }} · {{ actionLabels[chooser.action] ?? chooser.action }}
+        </p>
+        <button
+          v-for="credential in chooser.type.credentials"
+          :key="credential.id"
+          class="flex w-full items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2.5 text-left transition hover:border-emerald-400/30 hover:bg-emerald-400/5"
+          @click="chooseCredential(credential)"
+        >
+          <span class="min-w-0">
+            <span class="block truncate text-xs font-medium text-slate-200">
+              {{ credential.label ?? '未命名' }}
+            </span>
+            <span class="mt-0.5 block truncate font-mono text-[10px] text-slate-500">
+              {{ credential.username || '无用户名' }}
+            </span>
+          </span>
+          <span
+            v-if="credential.isDefault"
+            class="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-300"
+          >
+            默认
+          </span>
+        </button>
+      </div>
+      <template #footer>
+        <button class="btn btn-ghost" @click="chooserOpen = false">取消</button>
+      </template>
+    </Modal>
   </div>
 </template>

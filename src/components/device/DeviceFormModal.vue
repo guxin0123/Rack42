@@ -1,14 +1,23 @@
 <script setup lang="ts">
+import { KeyRound, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import { computed, reactive, ref, watch } from 'vue'
 
+import CredentialFormModal from '@/components/credential/CredentialFormModal.vue'
 import Modal from '@/components/ui/Modal.vue'
 import { deviceKindMeta } from '@/lib/format'
+import { api } from '@/lib/ipc'
 import {
   osFamilyGroups,
   osFamilyOf,
   osOptionsFor,
 } from '@/lib/os'
-import type { Device, DeviceKind, DeviceStatus, OsFamily } from '@/lib/types'
+import type {
+  Credential,
+  Device,
+  DeviceKind,
+  DeviceStatus,
+  OsFamily,
+} from '@/lib/types'
 import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{
@@ -23,6 +32,12 @@ const emit = defineEmits<{ close: []; saved: [] }>()
 const store = useAppStore()
 const busy = ref(false)
 const error = ref('')
+const activeTab = ref<'basic' | 'credentials'>('basic')
+
+const credentials = ref<Credential[]>([])
+const credentialsLoading = ref(false)
+const credentialModalOpen = ref(false)
+const editingCredential = ref<Credential | null>(null)
 
 const kinds = Object.entries(deviceKindMeta) as Array<
   [DeviceKind, (typeof deviceKindMeta)[DeviceKind]]
@@ -70,7 +85,11 @@ const currentOsOptions = computed(() => {
 watch(
   () => props.open,
   (open) => {
-    if (!open) return
+    if (!open) {
+      credentialModalOpen.value = false
+      editingCredential.value = null
+      return
+    }
     error.value = ''
     const device = props.device
     form.name = device?.name ?? ''
@@ -96,9 +115,74 @@ watch(
     form.os = device?.os ?? ''
     form.hostId = device?.hostId ? String(device.hostId) : ''
     form.note = device?.note ?? ''
+    activeTab.value = 'basic'
+    credentials.value = []
   },
   { immediate: true },
 )
+
+const primaryIp = computed(() => props.device?.ips[0] ?? '')
+
+watch([activeTab, () => props.device?.id], ([tab, deviceId]) => {
+  if (props.open && tab === 'credentials' && deviceId) {
+    void loadCredentials()
+  }
+})
+
+async function loadCredentials(): Promise<void> {
+  if (!props.device) return
+  credentialsLoading.value = true
+  try {
+    credentials.value = await api.listCredentials(props.device.id)
+  } catch (caught) {
+    store.notify(caught instanceof Error ? caught.message : '加载凭据失败')
+  } finally {
+    credentialsLoading.value = false
+  }
+}
+
+function typeName(typeId: number): string {
+  return store.credentialTypes.find((type) => type.id === typeId)?.name ?? '其他'
+}
+
+function credentialAddress(credential: Credential): string {
+  return credential.address ?? (primaryIp.value || '跟随主 IP')
+}
+
+function openAddCredential(): void {
+  editingCredential.value = null
+  credentialModalOpen.value = true
+}
+
+function openEditCredential(credential: Credential): void {
+  editingCredential.value = credential
+  credentialModalOpen.value = true
+}
+
+async function onCredentialSaved(): Promise<void> {
+  credentialModalOpen.value = false
+  editingCredential.value = null
+  await loadCredentials()
+}
+
+async function removeCredential(credential: Credential): Promise<void> {
+  if (
+    !window.confirm(
+      `确定删除凭据「${credential.label ?? credential.username ?? '未命名'}」吗？`,
+    )
+  ) {
+    return
+  }
+
+  try {
+    await api.deleteCredential(credential.id)
+    store.notify('凭据已删除')
+    await loadCredentials()
+    await store.refresh()
+  } catch (caught) {
+    store.notify(caught instanceof Error ? caught.message : '删除失败')
+  }
+}
 
 function addIp(): void {
   if (form.ips.length >= 16) return
@@ -175,7 +259,42 @@ async function submit(): Promise<void> {
     width="max-w-3xl"
     @close="$emit('close')"
   >
-    <form class="space-y-5" @submit.prevent="submit">
+    <div class="mb-5 flex gap-1 border-b border-white/10">
+      <button
+        type="button"
+        class="-mb-px border-b-2 px-3 pb-2 text-xs transition"
+        :class="
+          activeTab === 'basic'
+            ? 'border-emerald-400 text-emerald-300'
+            : 'border-transparent text-slate-500 hover:text-slate-300'
+        "
+        @click="activeTab = 'basic'"
+      >
+        基本信息
+      </button>
+      <button
+        type="button"
+        class="-mb-px flex items-center gap-1.5 border-b-2 px-3 pb-2 text-xs transition disabled:cursor-not-allowed disabled:opacity-40"
+        :class="
+          activeTab === 'credentials'
+            ? 'border-emerald-400 text-emerald-300'
+            : 'border-transparent text-slate-500 hover:text-slate-300'
+        "
+        :disabled="!device"
+        :title="device ? '管理该设备的凭据' : '保存设备后可添加凭据'"
+        @click="activeTab = 'credentials'"
+      >
+        凭据
+        <span
+          v-if="credentials.length"
+          class="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-400"
+        >
+          {{ credentials.length }}
+        </span>
+      </button>
+    </div>
+
+    <form v-show="activeTab === 'basic'" class="space-y-5" @submit.prevent="submit">
       <div class="grid grid-cols-2 gap-4">
         <div>
           <label class="label" for="device-name">设备名称</label>
@@ -373,11 +492,119 @@ async function submit(): Promise<void> {
       </p>
     </form>
 
+    <div v-if="activeTab === 'credentials'" class="space-y-4">
+      <div
+        v-if="!device"
+        class="flex flex-col items-center gap-2 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-10 text-center"
+      >
+        <KeyRound class="h-6 w-6 text-slate-600" />
+        <p class="text-xs text-slate-400">保存设备后即可添加凭据</p>
+        <p class="text-[10px] text-slate-600">先填写基本信息并保存，再回到「凭据」标签页。</p>
+      </div>
+
+      <template v-else>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p class="text-xs text-slate-300">该设备的凭据</p>
+            <p class="mt-0.5 text-[10px] text-slate-500">
+              密码只在连接时解密；列表不显示密码。地址留空时跟随设备主 IP。
+            </p>
+          </div>
+          <button class="btn btn-ghost" type="button" @click="openAddCredential">
+            <Plus class="h-3.5 w-3.5" />
+            添加凭据
+          </button>
+        </div>
+
+        <p v-if="credentialsLoading" class="py-6 text-center text-[11px] text-slate-500">
+          加载凭据…
+        </p>
+
+        <div
+          v-else-if="!credentials.length"
+          class="flex flex-col items-center gap-2 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-10 text-center"
+        >
+          <KeyRound class="h-6 w-6 text-slate-600" />
+          <p class="text-xs text-slate-400">还没有凭据</p>
+          <p class="text-[10px] text-slate-600">
+            添加 RDP、SSH、iDRAC、ESXi 或 Web 凭据后，设备列表会出现对应的连接按钮。
+          </p>
+          <button class="btn btn-primary mt-1" type="button" @click="openAddCredential">
+            <Plus class="h-3.5 w-3.5" />
+            添加第一条
+          </button>
+        </div>
+
+        <div v-else class="space-y-2">
+          <div
+            v-for="credential in credentials"
+            :key="credential.id"
+            class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2.5"
+          >
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="badge bg-white/5 text-slate-300 ring-white/10">
+                  {{ typeName(credential.typeId) }}
+                </span>
+                <span class="text-xs font-medium text-slate-200">
+                  {{ credential.label ?? '未命名' }}
+                </span>
+                <span
+                  v-if="credential.isDefault"
+                  class="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-300"
+                >
+                  默认
+                </span>
+              </div>
+              <p class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] text-slate-500">
+                <span>{{ credential.username || '无用户名' }}</span>
+                <span>{{ credentialAddress(credential) }}</span>
+                <span>端口 {{ credential.port ?? '默认' }}</span>
+              </p>
+            </div>
+            <div class="flex shrink-0 gap-1">
+              <button
+                class="rounded-md p-1.5 text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
+                title="编辑凭据"
+                type="button"
+                @click="openEditCredential(credential)"
+              >
+                <Pencil class="h-3.5 w-3.5" />
+              </button>
+              <button
+                class="rounded-md p-1.5 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-300"
+                title="删除凭据"
+                type="button"
+                @click="removeCredential(credential)"
+              >
+                <Trash2 class="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
     <template #footer>
-      <button class="btn btn-ghost" type="button" @click="$emit('close')">取消</button>
-      <button class="btn btn-primary" type="button" :disabled="busy" @click="submit">
-        {{ busy ? '保存中…' : device ? '保存修改' : '创建设备' }}
+      <template v-if="activeTab === 'basic'">
+        <button class="btn btn-ghost" type="button" @click="$emit('close')">取消</button>
+        <button class="btn btn-primary" type="button" :disabled="busy" @click="submit">
+          {{ busy ? '保存中…' : device ? '保存修改' : '创建设备' }}
+        </button>
+      </template>
+      <button v-else class="btn btn-ghost" type="button" @click="$emit('close')">
+        关闭
       </button>
     </template>
   </Modal>
+
+  <CredentialFormModal
+    v-if="device"
+    :open="credentialModalOpen"
+    :device-id="device.id"
+    :primary-ip="primaryIp"
+    :credential="editingCredential"
+    @close="credentialModalOpen = false"
+    @saved="onCredentialSaved"
+  />
 </template>

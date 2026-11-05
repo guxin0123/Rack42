@@ -124,6 +124,13 @@ export interface CredentialInput {
   isDefault?: boolean
 }
 
+export interface ConnectionCredentialSummary {
+  id: number
+  label: string | null
+  username: string | null
+  isDefault: boolean
+}
+
 export interface ConnectionTypeSummary {
   typeId: number
   slug: string
@@ -132,6 +139,7 @@ export interface ConnectionTypeSummary {
   actions: CredentialAction[]
   credentialCount: number
   defaultCredentialId: number
+  credentials: ConnectionCredentialSummary[]
 }
 
 export interface DeviceConnectionSummary {

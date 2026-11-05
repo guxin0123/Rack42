@@ -49,11 +49,31 @@ fn normalize_port(port: Option<i64>) -> AppResult<Option<i64>> {
     }
 }
 
-fn normalize_icon(icon: Option<&str>) -> String {
-    icon.map(str::trim)
+fn normalize_icon(icon: Option<&str>) -> AppResult<String> {
+    let value = icon
+        .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("key")
-        .to_string()
+        .unwrap_or("key");
+
+    if value.starts_with("data:image/") {
+        const ALLOWED: &[&str] = &[
+            "data:image/png;base64,",
+            "data:image/jpeg;base64,",
+            "data:image/webp;base64,",
+        ];
+        if !ALLOWED.iter().any(|prefix| value.starts_with(prefix)) {
+            return Err(AppError::Validation(
+                "自定义图标只支持 PNG / JPEG / WebP".to_string(),
+            ));
+        }
+        if value.len() > 200_000 {
+            return Err(AppError::Validation("自定义图标不能超过 150KB".to_string()));
+        }
+    } else if value.len() > 64 {
+        return Err(AppError::Validation("图标标识过长".to_string()));
+    }
+
+    Ok(value.to_string())
 }
 
 const SELECT: &str = "SELECT id, slug, name, icon, actions, default_port, is_builtin, sort_order FROM credential_types";
@@ -93,7 +113,7 @@ pub async fn create(pool: &SqlitePool, input: &CredentialTypeInput) -> AppResult
     let actions = normalize_actions(&input.actions)?;
     let actions_json = serde_json::to_string(&actions)?;
     let default_port = normalize_port(input.default_port)?;
-    let icon = normalize_icon(input.icon.as_deref());
+    let icon = normalize_icon(input.icon.as_deref())?;
     let sort_order = input.sort_order.unwrap_or(0);
 
     let result = sqlx::query(
@@ -128,7 +148,7 @@ pub async fn update(
     let actions = normalize_actions(&input.actions)?;
     let actions_json = serde_json::to_string(&actions)?;
     let default_port = normalize_port(input.default_port)?;
-    let icon = normalize_icon(input.icon.as_deref());
+    let icon = normalize_icon(input.icon.as_deref())?;
     let sort_order = input.sort_order.unwrap_or(existing.sort_order);
 
     let result = sqlx::query(

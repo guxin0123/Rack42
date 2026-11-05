@@ -1,6 +1,6 @@
 # Rack42 凭据类型与远程连接改造计划
 
-> 状态：Phase 0/1/2/3 已完成（RDP/Web/SSH/SFTP），Phase 4 待进行
+> 状态：Phase 0/1/2/3/4 已完成（RDP/Web/SSH/SFTP + 设备凭据/类型管理），Phase 5 待进行
 >
 > 验证报告：[Phase 0](phase0-report.md) · [Phase 3](phase3-report.md)
 > 版本：v0.1（定稿）
@@ -352,10 +352,10 @@ copy_credential_password(credential_id) -> ()   // 可选：写剪贴板，不�
 - [x] 浏览器打开与 URL 校验
 - [x] PuTTY/Xshell/psftp/Xftp/OpenSSH 参数构造
 - [x] 连接设置页与路径校验
-- [x] 设备列表连接按钮（RDP/Web/SSH/SFTP，使用默认凭据；多凭据菜单留待 Phase 4）
-- [ ] 设备编辑凭据标签页
-- [ ] 类型管理与图标 UI
-- [ ] 自定义图标
+- [x] 设备列表连接按钮（RDP/Web/SSH/SFTP，同类型多凭据可弹出选择）
+- [x] 设备编辑凭据标签页（增删改、默认凭据、跟随主 IP）
+- [x] 类型管理与图标 UI（动作、默认端口、内置图标）
+- [x] 自定义图标（PNG/JPEG/WebP，100KB 上限，不支持 SVG）
 - [ ] 审计日志
 - [ ] 安全检查与手动测试矩阵
 - [ ] README/迁移说明

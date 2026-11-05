@@ -31,18 +31,30 @@ pub struct ConnectionTypeSummary {
     pub actions: Vec<String>,
     pub credential_count: i64,
     pub default_credential_id: i64,
+    pub credentials: Vec<ConnectionCredentialSummary>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionCredentialSummary {
+    pub id: i64,
+    pub label: Option<String>,
+    pub username: Option<String>,
+    pub is_default: bool,
 }
 
 #[derive(Debug, sqlx::FromRow)]
 struct ConnectionRow {
+    id: i64,
     device_id: i64,
     type_id: i64,
+    label: Option<String>,
+    username: Option<String>,
+    is_default: i64,
     slug: String,
     name: String,
     icon: String,
     actions: String,
-    credential_count: i64,
-    default_credential_id: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,13 +66,11 @@ pub struct ConnectResult {
 
 pub async fn list_device_connections(pool: &SqlitePool) -> AppResult<Vec<DeviceConnectionSummary>> {
     let rows = sqlx::query_as::<_, ConnectionRow>(
-        "SELECT c.device_id, t.id AS type_id, t.slug, t.name, t.icon, t.actions, \
-                COUNT(*) AS credential_count, \
-                COALESCE(MAX(CASE WHEN c.is_default = 1 THEN c.id END), MIN(c.id)) AS default_credential_id \
+        "SELECT c.id, c.device_id, c.type_id, c.label, c.username, c.is_default, \
+                t.slug, t.name, t.icon, t.actions \
          FROM credentials c \
          JOIN credential_types t ON t.id = c.type_id \
-         GROUP BY c.device_id, t.id \
-         ORDER BY c.device_id, t.sort_order, t.id",
+         ORDER BY c.device_id, t.sort_order, t.id, c.is_default DESC, c.id",
     )
     .fetch_all(pool)
     .await?;
@@ -68,23 +78,51 @@ pub async fn list_device_connections(pool: &SqlitePool) -> AppResult<Vec<DeviceC
     let mut result: Vec<DeviceConnectionSummary> = Vec::new();
 
     for row in rows {
+        let credential = ConnectionCredentialSummary {
+            id: row.id,
+            label: row.label,
+            username: row.username,
+            is_default: row.is_default != 0,
+        };
         let actions = serde_json::from_str::<Vec<String>>(&row.actions).unwrap_or_default();
+        let default_id = credential.id;
+
+        if let Some(device) = result.last_mut() {
+            if device.device_id == row.device_id {
+                if let Some(item) = device
+                    .types
+                    .iter_mut()
+                    .find(|item| item.type_id == row.type_id)
+                {
+                    item.credential_count += 1;
+                    item.credentials.push(credential);
+                } else {
+                    let item = ConnectionTypeSummary {
+                        type_id: row.type_id,
+                        slug: row.slug,
+                        name: row.name,
+                        icon: row.icon,
+                        actions,
+                        credential_count: 1,
+                        default_credential_id: default_id,
+                        credentials: vec![credential],
+                    };
+                    device.types.push(item);
+                }
+                continue;
+            }
+        }
+
         let item = ConnectionTypeSummary {
             type_id: row.type_id,
             slug: row.slug,
             name: row.name,
             icon: row.icon,
             actions,
-            credential_count: row.credential_count,
-            default_credential_id: row.default_credential_id,
+            credential_count: 1,
+            default_credential_id: default_id,
+            credentials: vec![credential],
         };
-
-        if let Some(last) = result.last_mut() {
-            if last.device_id == row.device_id {
-                last.types.push(item);
-                continue;
-            }
-        }
 
         result.push(DeviceConnectionSummary {
             device_id: row.device_id,
@@ -94,7 +132,6 @@ pub async fn list_device_connections(pool: &SqlitePool) -> AppResult<Vec<DeviceC
 
     Ok(result)
 }
-
 pub async fn cleanup_pending(pool: &SqlitePool) -> AppResult<()> {
     let rows = sqlx::query_as::<_, (i64, String)>("SELECT id, temp_path FROM rdp_sessions")
         .fetch_all(pool)
