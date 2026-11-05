@@ -65,16 +65,18 @@ const {
 const RACK_WIDTH = 380
 const RACK_HEADER = 58
 const RACK_INSET = 18
-const RACK_PAD = 12
-const RACK_GAP = 10
+const RACK_PAD = 18
+// Generous vertical gaps keep the in/out handles of neighbouring cards
+// reachable when dragging a connection.
+const RACK_GAP = 30
 const RACK_COLUMN_GAP = 80
 const RACK_EMPTY_HEIGHT = 130
 const RACK_DEVICE_HEIGHT = 64
 
 const HOST_WIDTH = 300
-const HOST_HEADER = 68
+const HOST_HEADER = 72
 const VM_HEIGHT = 62
-const VM_GAP = 8
+const VM_GAP = 28
 const VM_INSET = 14
 
 const ROOT_DEVICE_HEIGHT = 92
@@ -130,7 +132,7 @@ function rackNodeId(rack: Rack): string {
 }
 
 function hostHeight(count: number): number {
-  return HOST_HEADER + count * VM_HEIGHT + Math.max(0, count - 1) * VM_GAP + 10
+  return HOST_HEADER + count * VM_HEIGHT + Math.max(0, count - 1) * VM_GAP + 18
 }
 
 /** Only physical servers can host VMs, and only VMs can have a host. */
