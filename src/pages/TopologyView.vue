@@ -6,6 +6,7 @@ import {
   type Connection,
   type DefaultEdge,
   type Edge,
+  type EdgeMouseEvent,
   type Node,
   type NodeComponent,
   type NodeMouseEvent,
@@ -19,6 +20,7 @@ import CredentialChooserModal from '@/components/device/CredentialChooserModal.v
 import DeviceFormModal from '@/components/device/DeviceFormModal.vue'
 import DeviceNode from '@/components/topology/DeviceNode.vue'
 import RackNode from '@/components/topology/RackNode.vue'
+import TopologyEdgeMenu from '@/components/topology/TopologyEdgeMenu.vue'
 import TopologyNodeMenu from '@/components/topology/TopologyNodeMenu.vue'
 import Modal from '@/components/ui/Modal.vue'
 import { useDeviceConnect } from '@/composables/useDeviceConnect'
@@ -33,6 +35,7 @@ import type {
   CredentialAction,
   Device,
   LayoutNode,
+  Link,
   LinkType,
   Rack,
   RackLayoutNode,
@@ -129,6 +132,13 @@ const menuTypes = computed(() =>
   menuDevice.value ? connectionTypes(menuDevice.value.id) : [],
 )
 
+const edgeMenuOpen = ref(false)
+const edgeMenuPosition = reactive({ x: 0, y: 0 })
+const edgeMenuLink = ref<Link | null>(null)
+const edgeMenuLabel = computed(() =>
+  edgeMenuLink.value ? linkLabel(edgeMenuLink.value) : '',
+)
+
 const deviceFormOpen = ref(false)
 const deviceFormDevice = ref<Device | null>(null)
 const deviceFormTab = ref<'basic' | 'credentials'>('basic')
@@ -155,6 +165,12 @@ function parentOf(device: Device): number | null {
   return hostId
 }
 
+function linkLabel(link: Link): string {
+  return [link.linkType ? linkTypeLabel(link.linkType) : null, link.speed]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 function rebuildEdges(): void {
   const next: Edge[] = []
 
@@ -166,10 +182,7 @@ function rebuildEdges(): void {
       type: 'smoothstep',
       animated: link.linkType === 'power',
       zIndex: EDGE_Z_INDEX,
-      label:
-        [link.linkType ? linkTypeLabel(link.linkType) : null, link.speed]
-          .filter(Boolean)
-          .join(' · ') || undefined,
+      label: linkLabel(link) || undefined,
       style: {
         stroke: linkTypeColor(link.linkType),
         strokeWidth: 1.6,
@@ -588,7 +601,17 @@ function closeMenu(): void {
   menuDevice.value = null
 }
 
-function pointerPosition(event: NodeMouseEvent['event']): { x: number; y: number } {
+function closeEdgeMenu(): void {
+  edgeMenuOpen.value = false
+  edgeMenuLink.value = null
+}
+
+function closeMenus(): void {
+  closeMenu()
+  closeEdgeMenu()
+}
+
+function pointerPosition(event: MouseEvent | TouchEvent): { x: number; y: number } {
   if ('clientX' in event) return { x: event.clientX, y: event.clientY }
   const touch = event.touches[0] ?? event.changedTouches[0]
   return { x: touch?.clientX ?? 0, y: touch?.clientY ?? 0 }
@@ -601,11 +624,40 @@ function onNodeContextMenu({ event, node }: NodeMouseEvent): void {
   const device = store.deviceById.get(Number(node.id))
   if (!device) return
 
+  closeEdgeMenu()
   const point = pointerPosition(event)
   menuDevice.value = device
   menuPosition.x = point.x
   menuPosition.y = point.y
   menuOpen.value = true
+}
+
+function onEdgeContextMenu({ event, edge }: EdgeMouseEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
+
+  const linkId = Number(edge.id.replace(/^link-/, ''))
+  const link = store.links.find((item) => item.id === linkId)
+  if (!link) return
+
+  closeMenu()
+  const point = pointerPosition(event)
+  edgeMenuLink.value = link
+  edgeMenuPosition.x = point.x
+  edgeMenuPosition.y = point.y
+  edgeMenuOpen.value = true
+}
+
+async function deleteEdgeFromMenu(): Promise<void> {
+  const link = edgeMenuLink.value
+  closeEdgeMenu()
+  if (!link) return
+  try {
+    await store.deleteLink(link.id)
+    store.notify('连接已删除')
+  } catch (caught) {
+    store.notify(caught instanceof Error ? caught.message : '删除失败')
+  }
 }
 
 function openDeviceForm(device: Device, tab: 'basic' | 'credentials'): void {
@@ -693,8 +745,9 @@ async function removeDeviceFromMenu(): Promise<void> {
             :default-edge-options="{ type: 'smoothstep' }"
             @connect="onConnect"
             @node-context-menu="onNodeContextMenu"
-            @pane-click="closeMenu"
-            @node-drag-start="closeMenu"
+            @edge-context-menu="onEdgeContextMenu"
+            @pane-click="closeMenus"
+            @node-drag-start="closeMenus"
           >
             <Background :pattern-color="patternColor" :gap="22" :size="1" />
             <Controls />
@@ -785,6 +838,17 @@ async function removeDeviceFromMenu(): Promise<void> {
       @credentials="manageMenuCredentials"
       @edit="editMenuDevice"
       @remove="removeDeviceFromMenu"
+    />
+
+    <TopologyEdgeMenu
+      :open="edgeMenuOpen"
+      :x="edgeMenuPosition.x"
+      :y="edgeMenuPosition.y"
+      :source-name="edgeMenuLink ? deviceName(edgeMenuLink.srcDeviceId) : ''"
+      :target-name="edgeMenuLink ? deviceName(edgeMenuLink.dstDeviceId) : ''"
+      :label="edgeMenuLabel"
+      @close="closeEdgeMenu"
+      @delete="deleteEdgeFromMenu"
     />
 
     <DeviceFormModal
