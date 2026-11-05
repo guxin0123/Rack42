@@ -8,6 +8,7 @@ import {
   deviceStatusMeta,
   deviceStatusLabel,
 } from '@/lib/format'
+import { useTopologyHighlight } from '@/composables/useTopologyHighlight'
 import type { Device } from '@/lib/types'
 
 const props = defineProps<{
@@ -24,6 +25,8 @@ const device = computed(() => props.data.device)
 const color = computed(() => deviceKindColor(device.value.kind))
 const variant = computed(() => props.data.variant ?? 'device')
 const childCount = computed(() => props.data.childCount ?? 0)
+const highlighted = useTopologyHighlight()
+const isHighlighted = computed(() => highlighted.value.has(device.value.id))
 </script>
 
 <template>
@@ -31,6 +34,7 @@ const childCount = computed(() => props.data.childCount ?? 0)
   <div
     v-if="variant === 'host'"
     class="flex h-full w-full flex-col rounded-2xl border bg-slate-950/95 shadow-xl shadow-black/25"
+    :class="isHighlighted ? 'ring-2 ring-emerald-400/80' : ''"
     :style="{ borderColor: `${color}80` }"
   >
     <Handle
@@ -83,6 +87,7 @@ const childCount = computed(() => props.data.childCount ?? 0)
   <div
     v-else-if="variant === 'vm'"
     class="flex h-full w-full flex-col justify-center rounded-lg border bg-slate-900/95 px-2.5 py-1.5 shadow-lg shadow-black/20"
+    :class="isHighlighted ? 'ring-2 ring-emerald-400/80' : ''"
     :style="{ borderColor: `${color}66` }"
   >
     <Handle
@@ -121,6 +126,7 @@ const childCount = computed(() => props.data.childCount ?? 0)
   <div
     v-else-if="variant === 'racked'"
     class="flex h-full w-full flex-col justify-center rounded-lg border bg-slate-950/95 px-3 py-1.5 shadow-lg shadow-black/15"
+    :class="isHighlighted ? 'ring-2 ring-emerald-400/80' : ''"
     :style="{ borderColor: `${color}66` }"
   >
     <Handle
@@ -162,6 +168,7 @@ const childCount = computed(() => props.data.childCount ?? 0)
   <div
     v-else
     class="w-52 rounded-xl border bg-slate-950/95 px-3 py-2.5 shadow-xl shadow-black/20"
+    :class="isHighlighted ? 'ring-2 ring-emerald-400/80' : ''"
     :style="{ borderColor: `${color}66` }"
   >
     <Handle

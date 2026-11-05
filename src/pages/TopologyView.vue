@@ -24,6 +24,7 @@ import TopologyEdgeMenu from '@/components/topology/TopologyEdgeMenu.vue'
 import TopologyNodeMenu from '@/components/topology/TopologyNodeMenu.vue'
 import Modal from '@/components/ui/Modal.vue'
 import { useDeviceConnect } from '@/composables/useDeviceConnect'
+import { provideTopologyHighlight } from '@/composables/useTopologyHighlight'
 import {
   linkTypeColor,
   linkTypeLabel,
@@ -139,6 +140,15 @@ const edgeMenuLabel = computed(() =>
   edgeMenuLink.value ? linkLabel(edgeMenuLink.value) : '',
 )
 
+const selectedLinkId = ref<number | null>(null)
+const highlightedDeviceIds = computed<number[]>(() => {
+  if (selectedLinkId.value === null) return []
+  const link = store.links.find((item) => item.id === selectedLinkId.value)
+  return link ? [link.srcDeviceId, link.dstDeviceId] : []
+})
+
+provideTopologyHighlight(highlightedDeviceIds)
+
 const deviceFormOpen = ref(false)
 const deviceFormDevice = ref<Device | null>(null)
 const deviceFormTab = ref<'basic' | 'credentials'>('basic')
@@ -175,20 +185,33 @@ function rebuildEdges(): void {
   const next: Edge[] = []
 
   for (const link of store.links) {
+    const selected = link.id === selectedLinkId.value
     const edge: DefaultEdge = {
       id: `link-${link.id}`,
       source: String(link.srcDeviceId),
       target: String(link.dstDeviceId),
       type: 'smoothstep',
-      animated: link.linkType === 'power',
+      animated: selected || link.linkType === 'power',
       zIndex: EDGE_Z_INDEX,
       label: linkLabel(link) || undefined,
       style: {
-        stroke: linkTypeColor(link.linkType),
-        strokeWidth: 1.6,
+        stroke: selected ? '#34d399' : linkTypeColor(link.linkType),
+        strokeWidth: selected ? 2.6 : 1.6,
+        filter: selected
+          ? 'drop-shadow(0 0 3px rgba(52, 211, 153, 0.75))'
+          : undefined,
       },
-      labelStyle: { fill: '#94a3b8', fontSize: '9px' },
-      labelBgStyle: { fill: '#0f172a', fillOpacity: 0.9 },
+      labelStyle: {
+        fill: selected ? '#34d399' : '#94a3b8',
+        fontSize: '9px',
+        fontWeight: selected ? 600 : 400,
+      },
+      labelBgStyle: {
+        fill: '#0f172a',
+        fillOpacity: selected ? 1 : 0.9,
+        stroke: selected ? '#34d399' : undefined,
+        strokeWidth: selected ? 1 : 0,
+      },
     }
     next.push(edge)
   }
@@ -444,8 +467,18 @@ onMounted(() => {
 
 watch(
   () => store.links.length,
-  () => rebuildEdges(),
+  () => {
+    if (
+      selectedLinkId.value !== null &&
+      !store.links.some((link) => link.id === selectedLinkId.value)
+    ) {
+      selectedLinkId.value = null
+    }
+    rebuildEdges()
+  },
 )
+
+watch(selectedLinkId, () => rebuildEdges())
 
 watch(
   () => {
@@ -611,6 +644,23 @@ function closeMenus(): void {
   closeEdgeMenu()
 }
 
+function onEdgeClick({ edge }: EdgeMouseEvent): void {
+  const linkId = Number(edge.id.replace(/^link-/, ''))
+  selectedLinkId.value = store.links.some((item) => item.id === linkId)
+    ? linkId
+    : null
+  closeMenus()
+}
+
+function onPaneClick(): void {
+  closeMenus()
+  selectedLinkId.value = null
+}
+
+function onNodeClick(): void {
+  selectedLinkId.value = null
+}
+
 function pointerPosition(event: MouseEvent | TouchEvent): { x: number; y: number } {
   if ('clientX' in event) return { x: event.clientX, y: event.clientY }
   const touch = event.touches[0] ?? event.changedTouches[0]
@@ -746,7 +796,9 @@ async function removeDeviceFromMenu(): Promise<void> {
             @connect="onConnect"
             @node-context-menu="onNodeContextMenu"
             @edge-context-menu="onEdgeContextMenu"
-            @pane-click="closeMenus"
+            @edge-click="onEdgeClick"
+            @node-click="onNodeClick"
+            @pane-click="onPaneClick"
             @node-drag-start="closeMenus"
           >
             <Background :pattern-color="patternColor" :gap="22" :size="1" />
