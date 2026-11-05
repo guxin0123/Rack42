@@ -164,6 +164,18 @@ export interface ConnectionSettings {
   autoFillPassword: boolean
 }
 
+export interface AuditLog {
+  id: number
+  action: string
+  deviceName: string | null
+  credentialLabel: string | null
+  credentialType: string | null
+  target: string | null
+  result: 'success' | 'failed'
+  detail: string | null
+  createdAt: string
+}
+
 export interface Link {
   id: number
   srcDeviceId: number

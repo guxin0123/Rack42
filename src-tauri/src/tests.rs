@@ -474,6 +474,36 @@ async fn device_connection_summary_groups_types_and_defaults() {
 }
 
 #[tokio::test]
+async fn audit_logs_list_and_clear_without_secrets() {
+    let pool = test_pool().await;
+
+    sqlx::query(
+        "INSERT INTO audit_logs (action, device_name, credential_label, credential_type, target, result, detail) \
+         VALUES ('rdp', 'srv-01', '管理口', 'RDP', '10.0.0.5:3389', 'success', NULL)",
+    )
+    .execute(&pool)
+    .await
+    .expect("insert audit log");
+
+    let logs = connections::list_audit_logs(&pool, 10)
+        .await
+        .expect("list audit logs");
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].action, "rdp");
+    assert_eq!(logs[0].device_name.as_deref(), Some("srv-01"));
+    assert_eq!(logs[0].target.as_deref(), Some("10.0.0.5:3389"));
+    assert_eq!(logs[0].result, "success");
+
+    connections::clear_audit_logs(&pool)
+        .await
+        .expect("clear audit logs");
+    assert!(connections::list_audit_logs(&pool, 10)
+        .await
+        .expect("list after clear")
+        .is_empty());
+}
+
+#[tokio::test]
 async fn custom_type_icons_accept_raster_and_reject_svg() {
     let pool = test_pool().await;
 

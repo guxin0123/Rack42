@@ -35,6 +35,7 @@ Rack42 面向单机或小团队使用场景，数据完全保存在本机，适�
 - [x] SSH/SFTP 快捷连接：支持 Xshell/Xftp 7.x、PuTTY/psftp、Windows OpenSSH；默认不把密码放入命令行
 - [x] 设备内凭据管理：编辑设备时管理凭据、默认凭据、跟随主 IP；同类型多凭据可弹出选择
 - [x] 凭据类型管理：自定义类型、动作、默认端口、内置图标与 PNG/JPEG/WebP 自定义图标
+- [x] 连接审计：记录 RDP/Web/SSH/SFTP 的动作、设备、凭据、目标与结果，不记录密码或用户名
 - [x] 连接关系：设备间线缆连接（类型、速率、端口），VM 与宿主机的归属关系
 - [x] 交互式拓扑图（Vue Flow）：节点拖拽、连线、按类型着色、布局保存
 - [x] 全局搜索：按名称 / IP / 机架 / 标签快速定位
@@ -47,7 +48,6 @@ Rack42 面向单机或小团队使用场景，数据完全保存在本机，适�
 - [ ] 设备批量导入模板
 - [ ] 简单的连通性探测（ICMP / TCP 端口）
 - [ ] 拓扑图导出为 PNG / SVG
-- [ ] 操作审计日志
 - [ ] 多用户与只读模式（需切换为共享数据库后端）
 
 ---
@@ -334,6 +334,21 @@ CREATE TABLE rdp_sessions (
     temp_path  TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- 连接审计（不记录密码或用户名）
+CREATE TABLE audit_logs (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    action           TEXT NOT NULL,
+    device_id        INTEGER,
+    device_name      TEXT,
+    credential_id    INTEGER,
+    credential_label TEXT,
+    credential_type  TEXT,
+    target           TEXT,
+    result           TEXT NOT NULL,
+    detail           TEXT,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
 ```
 
 拓扑图的节点位置（拖拽后的坐标）单独存放在 `topology_layout` 表中，按视图名保存，避免与业务数据耦合。
@@ -355,8 +370,9 @@ Rack42 采用两层保护，全部在本机完成：
 - 前端只在点击「显示」时通过 `reveal_credential` 命令获取单条凭据明文，界面默认掩码。
 - RDP 连接使用临时 `.rdp` 与 Windows DPAPI（`password 51:b:`）；临时文件在 mstsc 退出或下次启动时清理，密码不进入命令行，也不写入 Credential Manager。
 - SSH/SFTP 默认只向客户端传主机、端口和用户名，由客户端弹窗询问密码；「自动填充密码到命令行」默认关闭，开启后 Xshell/PuTTY/Xftp/psftp 的密码会出现在子进程命令行，需自行承担风险。Windows OpenSSH 始终由控制台提示密码。
+- 连接审计记录动作、设备、凭据标签、目标和结果，不记录密码或用户名；Web 目标会去掉路径和查询参数。
 - 导出 JSON 默认脱敏，不包含密码、密钥或主密码哈希；请勿把数据库文件提交到版本库。
-- 凭据的显示/复制操作尚未写入审计日志，已列入路线图。
+- 凭据的显示/复制操作尚未写入审计日志；当前审计范围仅连接动作。
 
 ---
 
@@ -464,7 +480,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | v0.1 | 机柜 / 设备 CRUD、U 位视图、主密码与凭据加密 |
 | v0.2 | 凭据管理、连接关系、Vue Flow 拓扑图 |
 | v0.3 | 全局搜索、JSON 导出、拓扑布局持久化 |
-| v0.4 | 连通性探测、审计日志、SQLCipher 整库加密 |
+| v0.4 | 连接审计（已完成）、连通性探测、SQLCipher 整库加密 |
 | v1.0 | 安装包签名、自动更新、文档完善 |
 
 ---

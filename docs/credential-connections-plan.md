@@ -1,8 +1,9 @@
 # Rack42 凭据类型与远程连接改造计划
 
-> 状态：Phase 0/1/2/3/4 已完成（RDP/Web/SSH/SFTP + 设备凭据/类型管理），Phase 5 待进行
+> 状态：Phase 0/1/2/3/4/5 已完成（审计、安全基线、手动测试矩阵与文档）
 >
 > 验证报告：[Phase 0](phase0-report.md) · [Phase 3](phase3-report.md)
+> 手动测试：[manual-test-matrix.md](manual-test-matrix.md)
 > 版本：v0.1（定稿）
 > 范围：凭据类型、凭据地址/端口、设备内凭据管理、设备列表连接入口、RDP/SSH/SFTP/浏览器启动器
 > 目标平台：Windows 10/11（Tauri 2 + Rust + Vue 3）
@@ -356,6 +357,7 @@ copy_credential_password(credential_id) -> ()   // 可选：写剪贴板，不�
 - [x] 设备编辑凭据标签页（增删改、默认凭据、跟随主 IP）
 - [x] 类型管理与图标 UI（动作、默认端口、内置图标）
 - [x] 自定义图标（PNG/JPEG/WebP，100KB 上限，不支持 SVG）
-- [ ] 审计日志
-- [ ] 安全检查与手动测试矩阵
-- [ ] README/迁移说明
+- [x] 审计日志（动作/设备/凭据标签/目标/结果，不含密码与用户名）
+- [x] 安全检查与手动测试矩阵
+- [x] README/迁移说明
+- [ ] RDP 凭据备份/恢复（可选）

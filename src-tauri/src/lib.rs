@@ -168,6 +168,8 @@ pub fn run() {
             commands::connection::update_connection_settings,
             commands::connection::detect_client_path,
             commands::connection::test_connection_client,
+            commands::connection::list_audit_logs,
+            commands::connection::clear_audit_logs,
             commands::device::create_device,
             commands::device::update_device,
             commands::device::delete_device,

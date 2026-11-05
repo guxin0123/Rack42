@@ -202,8 +202,42 @@ pub async fn connect_credential(
         ));
     }
 
+    let result = dispatch(state, action, &credential, &address, port).await;
+    let target = audit_target(action, &address, port);
+    let (result_label, detail) = match &result {
+        Ok(_) => ("success", None),
+        Err(error) => ("failed", Some(truncate(&error.to_string(), 500))),
+    };
+
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs \
+         (action, device_id, device_name, credential_id, credential_label, credential_type, target, result, detail) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(action)
+    .bind(device.id)
+    .bind(&device.name)
+    .bind(credential.id)
+    .bind(credential.label.as_deref())
+    .bind(&credential_type.name)
+    .bind(&target)
+    .bind(result_label)
+    .bind(detail)
+    .execute(&state.db)
+    .await;
+
+    result
+}
+
+async fn dispatch(
+    state: &AppState,
+    action: &str,
+    credential: &crate::models::credential::Credential,
+    address: &str,
+    port: i64,
+) -> AppResult<ConnectResult> {
     if action == "web" {
-        let url = build_web_url(&address, port)?;
+        let url = build_web_url(address, port)?;
         open::that(url.as_str()).map_err(AppError::Io)?;
         return Ok(ConnectResult {
             action: action.to_string(),
@@ -214,7 +248,7 @@ pub async fn connect_credential(
     if action == "ssh" || action == "sftp" {
         let settings = ssh::load(&state.db).await?;
         let password = if settings.auto_fill_password && credential.has_password {
-            let cipher = credentials::cipher_for(&state.db, credential_id).await?;
+            let cipher = credentials::cipher_for(&state.db, credential.id).await?;
             let key = state.require_key()?;
             Some(Zeroizing::new(crypto::decrypt(&key, &cipher)?))
         } else {
@@ -224,7 +258,7 @@ pub async fn connect_credential(
         ssh::launch(
             &settings,
             action,
-            &address,
+            address,
             port,
             credential.username.as_deref().unwrap_or(""),
             password.as_ref().map(|value| value.as_str()),
@@ -237,14 +271,14 @@ pub async fn connect_credential(
     }
 
     let password = if credential.has_password {
-        let cipher = credentials::cipher_for(&state.db, credential_id).await?;
+        let cipher = credentials::cipher_for(&state.db, credential.id).await?;
         let key = state.require_key()?;
         Some(Zeroizing::new(crypto::decrypt(&key, &cipher)?))
     } else {
         None
     };
 
-    let host = normalize_host(&address)?;
+    let host = normalize_host(address)?;
     let target = format!("{host}:{port}");
     let rdp_path = new_rdp_path(&state.data_dir)?;
 
@@ -301,6 +335,62 @@ pub async fn connect_credential(
         action: action.to_string(),
         target,
     })
+}
+
+fn audit_target(action: &str, address: &str, port: i64) -> String {
+    if action == "web" {
+        let candidate = if address.contains("://") {
+            address.to_string()
+        } else {
+            format!("https://{address}")
+        };
+        if let Ok(url) = Url::parse(&candidate) {
+            if let Some(host) = url.host_str() {
+                return match url.port() {
+                    Some(port) => format!("{}://{}:{}", url.scheme(), host, port),
+                    None => format!("{}://{}", url.scheme(), host),
+                };
+            }
+        }
+    }
+
+    format!("{address}:{port}")
+}
+
+fn truncate(value: &str, limit: usize) -> String {
+    value.chars().take(limit).collect()
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditLog {
+    pub id: i64,
+    pub action: String,
+    pub device_name: Option<String>,
+    pub credential_label: Option<String>,
+    pub credential_type: Option<String>,
+    pub target: Option<String>,
+    pub result: String,
+    pub detail: Option<String>,
+    pub created_at: String,
+}
+
+pub async fn list_audit_logs(pool: &SqlitePool, limit: i64) -> AppResult<Vec<AuditLog>> {
+    let limit = limit.clamp(1, 500);
+    let rows = sqlx::query_as::<_, AuditLog>(
+        "SELECT id, action, device_name, credential_label, credential_type, target, result, detail, created_at \
+         FROM audit_logs ORDER BY id DESC LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}
+
+pub async fn clear_audit_logs(pool: &SqlitePool) -> AppResult<()> {
+    sqlx::query("DELETE FROM audit_logs").execute(pool).await?;
+    Ok(())
 }
 
 fn new_rdp_path(data_dir: &Path) -> AppResult<PathBuf> {
@@ -488,6 +578,15 @@ mod tests {
         assert!(normalize_host("host:3389").is_err());
         assert_eq!(normalize_host("fe80::1").unwrap(), "[fe80::1]");
         assert_eq!(normalize_host("server-01").unwrap(), "server-01");
+    }
+
+    #[test]
+    fn audit_target_omits_web_path_and_query() {
+        assert_eq!(
+            audit_target("web", "https://example.test/admin?token=secret#x", 443),
+            "https://example.test"
+        );
+        assert_eq!(audit_target("ssh", "10.0.0.5", 22), "10.0.0.5:22");
     }
 
     #[cfg(windows)]

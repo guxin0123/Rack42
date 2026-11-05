@@ -10,6 +10,7 @@ import {
   Server,
   Settings,
   ShieldCheck,
+  ScrollText,
 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
@@ -42,6 +43,7 @@ const nav = [
   { to: '/devices', label: '设备', icon: HardDrive },
   { to: '/topology', label: '拓扑', icon: Network },
   { to: '/credentials', label: '凭据', icon: KeyRound },
+  { to: '/audit', label: '审计', icon: ScrollText },
   { to: '/settings', label: '设置', icon: Settings },
 ]
 

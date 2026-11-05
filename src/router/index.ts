@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 
+import AuditView from '@/pages/AuditView.vue'
 import CredentialsView from '@/pages/CredentialsView.vue'
 import DashboardView from '@/pages/DashboardView.vue'
 import DevicesView from '@/pages/DevicesView.vue'
@@ -46,6 +47,12 @@ const router = createRouter({
       name: 'credentials',
       component: CredentialsView,
       meta: { title: '凭据' },
+    },
+    {
+      path: '/audit',
+      name: 'audit',
+      component: AuditView,
+      meta: { title: '审计' },
     },
     {
       path: '/settings',

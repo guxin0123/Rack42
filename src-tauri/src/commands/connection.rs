@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::connections::{
-    connect_credential as connect, list_device_connections as list, ConnectResult,
+    connect_credential as connect, list_device_connections as list, AuditLog, ConnectResult,
     DeviceConnectionSummary,
 };
 use crate::error::AppResult;
@@ -45,4 +45,17 @@ pub fn detect_client_path(client: String) -> AppResult<Option<String>> {
 #[tauri::command]
 pub fn test_connection_client(client: String, path: Option<String>) -> AppResult<String> {
     ssh::test_client(&client, path.as_deref())
+}
+
+#[tauri::command]
+pub async fn list_audit_logs(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+) -> AppResult<Vec<AuditLog>> {
+    crate::connections::list_audit_logs(&state.db, limit.unwrap_or(100)).await
+}
+
+#[tauri::command]
+pub async fn clear_audit_logs(state: State<'_, AppState>) -> AppResult<()> {
+    crate::connections::clear_audit_logs(&state.db).await
 }

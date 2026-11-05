@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 
 import type {
+  AuditLog,
   BootstrapState,
   ConnectResult,
   ConnectionSettings,
@@ -60,6 +61,8 @@ export const api = {
     call<string | null>('detect_client_path', { client }),
   testConnectionClient: (client: string, path: string | null) =>
     call<string>('test_connection_client', { client, path }),
+  listAuditLogs: (limit = 200) => call<AuditLog[]>('list_audit_logs', { limit }),
+  clearAuditLogs: () => call<void>('clear_audit_logs'),
   createDevice: (input: DeviceInput) => call<Device>('create_device', { input }),
   updateDevice: (id: number, input: DeviceInput) =>
     call<Device>('update_device', { id, input }),
