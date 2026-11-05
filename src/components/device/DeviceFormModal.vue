@@ -25,6 +25,7 @@ const props = defineProps<{
   device?: Device | null
   defaultRackId?: number | null
   defaultPosition?: number | null
+  initialTab?: 'basic' | 'credentials'
 }>()
 
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -36,6 +37,7 @@ const activeTab = ref<'basic' | 'credentials'>('basic')
 
 const credentials = ref<Credential[]>([])
 const credentialsLoading = ref(false)
+const credentialsDeviceId = ref<number | null>(null)
 const credentialModalOpen = ref(false)
 const editingCredential = ref<Credential | null>(null)
 
@@ -58,7 +60,6 @@ const form = reactive({
   rackPosition: '',
   rackHeight: '1',
   ips: [''] as string[],
-  mac: '',
   vendor: '',
   model: '',
   serial: '',
@@ -107,7 +108,6 @@ watch(
         : ''
     form.rackHeight = String(device?.rackHeight ?? 1)
     form.ips = device?.ips?.length ? [...device.ips] : ['']
-    form.mac = device?.mac ?? ''
     form.vendor = device?.vendor ?? ''
     form.model = device?.model ?? ''
     form.serial = device?.serial ?? ''
@@ -115,13 +115,25 @@ watch(
     form.os = device?.os ?? ''
     form.hostId = device?.hostId ? String(device.hostId) : ''
     form.note = device?.note ?? ''
-    activeTab.value = 'basic'
-    credentials.value = []
+    activeTab.value =
+      device && props.initialTab === 'credentials' ? 'credentials' : 'basic'
+    const deviceId = device?.id ?? null
+    if (credentialsDeviceId.value !== deviceId) {
+      credentials.value = []
+      credentialsDeviceId.value = deviceId
+    }
   },
   { immediate: true },
 )
 
 const primaryIp = computed(() => props.device?.ips[0] ?? '')
+
+watch(
+  () => form.kind,
+  (kind) => {
+    if (kind !== 'vm') form.hostId = ''
+  },
+)
 
 watch([activeTab, () => props.device?.id], ([tab, deviceId]) => {
   if (props.open && tab === 'credentials' && deviceId) {
@@ -134,6 +146,7 @@ async function loadCredentials(): Promise<void> {
   credentialsLoading.value = true
   try {
     credentials.value = await api.listCredentials(props.device.id)
+    credentialsDeviceId.value = props.device.id
   } catch (caught) {
     store.notify(caught instanceof Error ? caught.message : '加载凭据失败')
   } finally {
@@ -226,13 +239,12 @@ async function submit(): Promise<void> {
       rackPosition: form.rackPosition ? Number(form.rackPosition) : null,
       rackHeight: Number(form.rackHeight) || 1,
       ips,
-      mac: form.mac.trim() || null,
       vendor: form.vendor.trim() || null,
       model: form.model.trim() || null,
       serial: form.serial.trim() || null,
       os: form.os.trim() || null,
       osFamily: form.os.trim() ? form.osFamily : null,
-      hostId: form.hostId ? Number(form.hostId) : null,
+      hostId: form.kind === 'vm' && form.hostId ? Number(form.hostId) : null,
       note: form.note.trim() || null,
     }
     if (props.device) {
@@ -399,15 +411,6 @@ async function submit(): Promise<void> {
 
       <div class="grid grid-cols-2 gap-4">
         <div>
-          <label class="label" for="device-mac">MAC</label>
-          <input
-            id="device-mac"
-            v-model="form.mac"
-            class="input"
-            placeholder="如 00:1A:2B:3C:4D:5E"
-          />
-        </div>
-        <div>
           <label class="label" for="device-vendor">厂商</label>
           <input id="device-vendor" v-model="form.vendor" class="input" />
         </div>
@@ -471,6 +474,9 @@ async function submit(): Promise<void> {
             {{ host.name }}
           </option>
         </select>
+        <p class="mt-1.5 text-[10px] text-slate-500">
+          宿主机只能是物理服务器；暂不支持虚拟机嵌套虚拟机。
+        </p>
       </div>
 
       <div>

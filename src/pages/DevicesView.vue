@@ -13,102 +13,39 @@ import {
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
+import CredentialChooserModal from '@/components/device/CredentialChooserModal.vue'
 import DeviceFormModal from '@/components/device/DeviceFormModal.vue'
-import Modal from '@/components/ui/Modal.vue'
+import { actionLabels, useDeviceConnect } from '@/composables/useDeviceConnect'
 import {
   deviceKindLabel,
   deviceKindMeta,
   deviceStatusLabel,
   deviceStatusMeta,
 } from '@/lib/format'
-import { api } from '@/lib/ipc'
-import type {
-  ConnectionCredentialSummary,
-  ConnectionTypeSummary,
-  CredentialAction,
-  Device,
-  DeviceKind,
-} from '@/lib/types'
+import type { Device, DeviceKind } from '@/lib/types'
 import { useAppStore } from '@/stores/app'
 
 const store = useAppStore()
 const route = useRoute()
+const {
+  chooserOpen,
+  chooser,
+  connectionTypes,
+  isConnecting,
+  connect,
+  connectFirst,
+  chooseCredential,
+  closeChooser,
+} = useDeviceConnect()
 
 const search = ref('')
 const kindFilter = ref<'all' | DeviceKind>('all')
 const rackFilter = ref<'all' | 'unassigned' | number>('all')
 const formOpen = ref(false)
 const editing = ref<Device | null>(null)
-const connectingKey = ref('')
-const chooserOpen = ref(false)
-const chooser = ref<{
-  type: ConnectionTypeSummary
-  action: CredentialAction
-} | null>(null)
 
-function connectionActions(type: ConnectionTypeSummary): CredentialAction[] {
-  return type.actions
-}
-
-const actionLabels: Record<string, string> = {
-  rdp: '远程桌面',
-  web: '打开 Web',
-  ssh: 'SSH 终端',
-  sftp: 'SFTP 文件传输',
-}
-
-const actionStarted: Record<string, string> = {
-  rdp: '已启动远程桌面',
-  web: '已在浏览器中打开',
-  ssh: '已启动 SSH 终端',
-  sftp: '已启动 SFTP 客户端',
-}
-
-function connectionTypes(deviceId: number): ConnectionTypeSummary[] {
-  const types =
-    store.deviceConnections.find((item) => item.deviceId === deviceId)?.types ?? []
-  return types.filter((type) => connectionActions(type).length > 0)
-}
-
-async function connect(type: ConnectionTypeSummary, action: CredentialAction): Promise<void> {
-  if (type.credentials.length > 1) {
-    chooser.value = { type, action }
-    chooserOpen.value = true
-    return
-  }
-
-  const credentialId = type.credentials[0]?.id ?? type.defaultCredentialId
-  await startConnection(credentialId, action, `${type.typeId}-${action}`)
-}
-
-async function chooseCredential(credential: ConnectionCredentialSummary): Promise<void> {
-  const context = chooser.value
-  chooserOpen.value = false
-  chooser.value = null
-  if (!context) return
-  await startConnection(
-    credential.id,
-    context.action,
-    `${context.type.typeId}-${context.action}`,
-  )
-}
-
-async function startConnection(
-  credentialId: number,
-  action: CredentialAction,
-  key: string,
-): Promise<void> {
-  if (connectingKey.value) return
-  connectingKey.value = key
-
-  try {
-    await api.connectCredential(credentialId, action)
-    store.notify(actionStarted[action] ?? '已启动连接')
-  } catch (caught) {
-    store.notify(caught instanceof Error ? caught.message : '连接失败')
-  } finally {
-    connectingKey.value = ''
-  }
+function deviceNameOf(deviceId: number): string {
+  return store.deviceById.get(deviceId)?.name ?? ''
 }
 
 const kindOptions = Object.entries(deviceKindMeta).map(([value, meta]) => ({
@@ -179,7 +116,7 @@ async function removeDevice(device: Device): Promise<void> {
       <div>
         <h2 class="text-base font-semibold tracking-tight text-slate-100">设备</h2>
         <p class="mt-1 text-xs text-slate-500">
-          共 {{ filtered.length }} 台 / {{ store.devices.length }} 台
+          共 {{ filtered.length }} 台 / {{ store.devices.length }} 台 · 双击设备可直接连接第一条凭据
         </p>
       </div>
       <button class="btn btn-primary" @click="createDevice">
@@ -233,7 +170,8 @@ async function removeDevice(device: Device): Promise<void> {
           <tr
             v-for="device in filtered"
             :key="device.id"
-            class="border-b border-white/[0.03] transition last:border-0 hover:bg-white/[0.02]"
+            class="select-none border-b border-white/[0.03] transition last:border-0 hover:bg-white/[0.02]"
+            @dblclick="connectFirst(device)"
           >
             <td class="px-5 py-3">
               <p class="font-medium text-slate-200">{{ device.name }}</p>
@@ -279,22 +217,22 @@ async function removeDevice(device: Device): Promise<void> {
             <td class="px-5 py-3 text-slate-400">
               {{ [device.vendor, device.model].filter(Boolean).join(' ') || '—' }}
             </td>
-            <td class="px-5 py-3">
+            <td class="px-5 py-3" @dblclick.stop>
               <div class="flex justify-end gap-1">
                 <template
                   v-for="type in connectionTypes(device.id)"
                   :key="type.typeId"
                 >
                   <button
-                    v-for="action in connectionActions(type)"
+                    v-for="action in type.actions"
                     :key="`${type.typeId}-${action}`"
                     class="rounded-md p-1.5 text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
                     :title="`${type.name}：${actionLabels[action] ?? action}（${type.credentialCount} 条凭据${type.credentialCount > 1 ? '，点击选择' : ''}）`"
-                    :disabled="connectingKey === `${type.typeId}-${action}`"
-                    @click="connect(type, action)"
+                    :disabled="isConnecting(device.id, type.typeId, action)"
+                    @click="connect(device.id, type, action)"
                   >
                     <Loader2
-                      v-if="connectingKey === `${type.typeId}-${action}`"
+                      v-if="isConnecting(device.id, type.typeId, action)"
                       class="h-3.5 w-3.5 animate-spin"
                     />
                     <Monitor v-else-if="action === 'rdp'" class="h-3.5 w-3.5" />
@@ -355,41 +293,12 @@ async function removeDevice(device: Device): Promise<void> {
       @saved="formOpen = false"
     />
 
-    <Modal
+    <CredentialChooserModal
       :open="chooserOpen"
-      title="选择凭据"
-      width="max-w-md"
-      @close="chooserOpen = false"
-    >
-      <div v-if="chooser" class="space-y-2">
-        <p class="mb-3 text-[11px] text-slate-500">
-          {{ chooser.type.name }} · {{ actionLabels[chooser.action] ?? chooser.action }}
-        </p>
-        <button
-          v-for="credential in chooser.type.credentials"
-          :key="credential.id"
-          class="flex w-full items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2.5 text-left transition hover:border-emerald-400/30 hover:bg-emerald-400/5"
-          @click="chooseCredential(credential)"
-        >
-          <span class="min-w-0">
-            <span class="block truncate text-xs font-medium text-slate-200">
-              {{ credential.label ?? '未命名' }}
-            </span>
-            <span class="mt-0.5 block truncate font-mono text-[10px] text-slate-500">
-              {{ credential.username || '无用户名' }}
-            </span>
-          </span>
-          <span
-            v-if="credential.isDefault"
-            class="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-300"
-          >
-            默认
-          </span>
-        </button>
-      </div>
-      <template #footer>
-        <button class="btn btn-ghost" @click="chooserOpen = false">取消</button>
-      </template>
-    </Modal>
+      :chooser="chooser"
+      :device-name="chooser ? deviceNameOf(chooser.deviceId) : ''"
+      @close="closeChooser"
+      @select="chooseCredential"
+    />
   </div>
 </template>

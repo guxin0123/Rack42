@@ -41,7 +41,6 @@ export interface Device {
   name: string
   kind: DeviceKind
   ips: string[]
-  mac: string | null
   vendor: string | null
   model: string | null
   serial: string | null
@@ -61,7 +60,6 @@ export interface DeviceInput {
   name: string
   kind: DeviceKind
   ips?: string[]
-  mac?: string | null
   vendor?: string | null
   model?: string | null
   serial?: string | null

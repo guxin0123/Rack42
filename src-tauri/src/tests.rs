@@ -53,7 +53,6 @@ fn device_input(
         name: name.to_string(),
         kind: "physical_server".to_string(),
         ips: vec!["10.0.0.1".to_string()],
-        mac: None,
         vendor: Some("Dell".to_string()),
         model: Some("R750".to_string()),
         serial: None,
@@ -739,6 +738,58 @@ async fn credential_secret_is_encrypted_and_revealable() {
         .await
         .expect("list all")
         .is_empty());
+}
+
+#[tokio::test]
+async fn virtual_machines_attach_only_to_physical_hosts() {
+    let pool = test_pool().await;
+    let host = devices::create(&pool, &device_input("host-01", None, None, 1))
+        .await
+        .expect("create host");
+
+    let mut vm_input = device_input("vm-01", None, None, 1);
+    vm_input.kind = "vm".to_string();
+    vm_input.host_id = Some(host.id);
+    let vm = devices::create(&pool, &vm_input).await.expect("create vm");
+    assert_eq!(vm.host_id, Some(host.id));
+
+    // A non-VM device cannot declare a host.
+    let mut server = device_input("srv-02", None, None, 1);
+    server.host_id = Some(host.id);
+    assert!(
+        devices::create(&pool, &server).await.is_err(),
+        "only VMs may declare a host"
+    );
+
+    // Nested virtualization is rejected: the host must be a physical server.
+    let mut nested = device_input("vm-02", None, None, 1);
+    nested.kind = "vm".to_string();
+    nested.host_id = Some(vm.id);
+    assert!(
+        devices::create(&pool, &nested).await.is_err(),
+        "a VM cannot host another VM"
+    );
+
+    // Turning the host into a VM detaches its children.
+    let mut demoted = device_input("host-01", None, None, 1);
+    demoted.kind = "vm".to_string();
+    devices::update(&pool, host.id, &demoted)
+        .await
+        .expect("demote host");
+    let reloaded = devices::get(&pool, vm.id).await.expect("reload vm");
+    assert_eq!(reloaded.host_id, None);
+}
+
+#[tokio::test]
+async fn mac_column_was_removed() {
+    let pool = test_pool().await;
+
+    let columns: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name = 'mac'")
+            .fetch_one(&pool)
+            .await
+            .expect("inspect devices columns");
+    assert_eq!(columns, 0);
 }
 
 #[tokio::test]

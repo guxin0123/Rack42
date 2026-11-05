@@ -11,22 +11,123 @@ import {
 import type { Device } from '@/lib/types'
 
 const props = defineProps<{
-  data: { device: Device }
+  data: {
+    device: Device
+    childCount?: number
+    variant?: 'device' | 'host' | 'vm'
+  }
 }>()
+
+defineOptions({ inheritAttrs: false })
 
 const device = computed(() => props.data.device)
 const color = computed(() => deviceKindColor(device.value.kind))
+const variant = computed(() => props.data.variant ?? 'device')
+const childCount = computed(() => props.data.childCount ?? 0)
 </script>
 
 <template>
+  <!-- Host container: VMs are rendered as child nodes floating above the body. -->
   <div
+    v-if="variant === 'host'"
+    class="flex h-full w-full flex-col rounded-2xl border bg-slate-950/95 shadow-xl shadow-black/25"
+    :style="{ borderColor: `${color}80` }"
+  >
+    <Handle
+      id="in"
+      type="target"
+      :position="Position.Top"
+      class="!h-2.5 !w-2.5 !border-0 !bg-slate-500 transition hover:!bg-emerald-400"
+    />
+
+    <div
+      class="flex shrink-0 items-center gap-2 rounded-t-2xl border-b border-white/5 px-3 py-2.5"
+      :style="{ backgroundColor: `${color}14` }"
+    >
+      <span
+        class="h-1.5 w-1.5 rounded-full"
+        :class="deviceStatusMeta[device.status]?.dot ?? 'bg-slate-500'"
+      />
+      <span class="truncate text-xs font-semibold text-slate-100">
+        {{ device.name }}
+      </span>
+      <span
+        class="shrink-0 rounded px-1.5 py-0.5 text-[9px]"
+        :style="{ color, backgroundColor: `${color}1f` }"
+      >
+        {{ deviceKindLabel(device.kind) }}
+      </span>
+      <span
+        class="ml-auto shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-400"
+        :title="`${childCount} 台虚拟机`"
+      >
+        VM × {{ childCount }}
+      </span>
+    </div>
+
+    <p class="shrink-0 truncate px-3 pt-1.5 font-mono text-[10px] text-slate-400">
+      {{ device.ips[0] ?? '—' }}
+    </p>
+
+    <div class="min-h-0 flex-1 rounded-md" />
+
+    <Handle
+      id="out"
+      type="source"
+      :position="Position.Bottom"
+      class="!h-2.5 !w-2.5 !border-0 !bg-slate-500 transition hover:!bg-emerald-400"
+    />
+  </div>
+
+  <!-- Hosted virtual machine: compact card sized by the host layout. -->
+  <div
+    v-else-if="variant === 'vm'"
+    class="flex h-full w-full flex-col justify-center rounded-lg border bg-slate-900/95 px-2.5 py-1.5 shadow-lg shadow-black/20"
+    :style="{ borderColor: `${color}66` }"
+  >
+    <Handle
+      id="in"
+      type="target"
+      :position="Position.Top"
+      class="!h-2 !w-2 !border-0 !bg-slate-600 transition hover:!bg-emerald-400"
+    />
+
+    <div class="flex items-center gap-1.5">
+      <span
+        class="h-1.5 w-1.5 shrink-0 rounded-full"
+        :class="deviceStatusMeta[device.status]?.dot ?? 'bg-slate-500'"
+      />
+      <span class="truncate text-[11px] font-medium text-slate-100">
+        {{ device.name }}
+      </span>
+      <span class="ml-auto shrink-0 text-[8px] uppercase tracking-wide text-slate-600">
+        VM
+      </span>
+    </div>
+    <p class="mt-0.5 truncate font-mono text-[9px] text-slate-500">
+      {{ device.ips[0] ?? '—' }}
+      <span v-if="device.model"> · {{ device.model }}</span>
+    </p>
+
+    <Handle
+      id="out"
+      type="source"
+      :position="Position.Bottom"
+      class="!h-2 !w-2 !border-0 !bg-slate-600 transition hover:!bg-emerald-400"
+    />
+  </div>
+
+  <!-- Standalone device. -->
+  <div
+    v-else
     class="w-52 rounded-xl border bg-slate-950/95 px-3 py-2.5 shadow-xl shadow-black/20"
     :style="{ borderColor: `${color}66` }"
   >
     <Handle
+      id="in"
       type="target"
       :position="Position.Top"
-      class="!h-2 !w-2 !border-0 !bg-slate-600"
+      class="!h-2.5 !w-2.5 !border-0 !bg-slate-500 transition hover:!bg-emerald-400"
     />
 
     <div class="flex items-center gap-2">
@@ -54,9 +155,10 @@ const color = computed(() => deviceKindColor(device.value.kind))
     </p>
 
     <Handle
+      id="out"
       type="source"
       :position="Position.Bottom"
-      class="!h-2 !w-2 !border-0 !bg-slate-600"
+      class="!h-2.5 !w-2.5 !border-0 !bg-slate-500 transition hover:!bg-emerald-400"
     />
   </div>
 </template>

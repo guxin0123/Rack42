@@ -1,20 +1,39 @@
 <script setup lang="ts">
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
-import { VueFlow, type DefaultEdge, type Edge, type Node, type NodeComponent, type NodeTypesObject } from '@vue-flow/core'
+import {
+  VueFlow,
+  type Connection,
+  type DefaultEdge,
+  type Edge,
+  type Node,
+  type NodeComponent,
+  type NodeMouseEvent,
+  type NodeTypesObject,
+} from '@vue-flow/core'
 import { Link2, Plus, Save, Trash2 } from 'lucide-vue-next'
-import { markRaw, computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, markRaw, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
+import CredentialChooserModal from '@/components/device/CredentialChooserModal.vue'
+import DeviceFormModal from '@/components/device/DeviceFormModal.vue'
 import DeviceNode from '@/components/topology/DeviceNode.vue'
+import TopologyNodeMenu from '@/components/topology/TopologyNodeMenu.vue'
 import Modal from '@/components/ui/Modal.vue'
-import { api } from '@/lib/ipc'
+import { useDeviceConnect } from '@/composables/useDeviceConnect'
 import {
   linkTypeColor,
   linkTypeLabel,
   linkTypeMeta,
 } from '@/lib/format'
-import type { Device, LayoutNode, LinkType } from '@/lib/types'
+import { api } from '@/lib/ipc'
+import type {
+  ConnectionTypeSummary,
+  CredentialAction,
+  Device,
+  LayoutNode,
+  LinkType,
+} from '@/lib/types'
 import { useAppStore } from '@/stores/app'
 import { useThemeStore } from '@/stores/theme'
 
@@ -25,6 +44,25 @@ import '@vue-flow/controls/dist/style.css'
 const store = useAppStore()
 const theme = useThemeStore()
 const router = useRouter()
+
+const {
+  connectingKey,
+  chooserOpen,
+  chooser,
+  connectionTypes,
+  connect,
+  chooseCredential,
+  closeChooser,
+} = useDeviceConnect()
+
+/** Host container geometry; VM children are laid out by this grid. */
+const HOST_WIDTH = 300
+const HOST_HEADER = 68
+const VM_HEIGHT = 62
+const VM_GAP = 8
+const VM_INSET = 14
+const ROOT_HEIGHT = 96
+const COLUMN_GAP = 330
 
 const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
@@ -55,23 +93,62 @@ const linkTypeOptions = Object.entries(linkTypeMeta).map(([value, meta]) => ({
   label: meta.label,
 }))
 
+const menuOpen = ref(false)
+const menuPosition = reactive({ x: 0, y: 0 })
+const menuDevice = ref<Device | null>(null)
+const menuTypes = computed(() =>
+  menuDevice.value ? connectionTypes(menuDevice.value.id) : [],
+)
+
+const deviceFormOpen = ref(false)
+const deviceFormDevice = ref<Device | null>(null)
+const deviceFormTab = ref<'basic' | 'credentials'>('basic')
+
 function nodeId(device: Device): string {
   return String(device.id)
 }
 
-function autoPosition(device: Device, fallback: number): { x: number; y: number } {
+function hostHeight(count: number): number {
+  return HOST_HEADER + count * VM_HEIGHT + Math.max(0, count - 1) * VM_GAP + 10
+}
+
+/** Only physical servers can host VMs, and only VMs can have a host. */
+function parentOf(device: Device): number | null {
+  if (device.kind !== 'vm') return null
+  const hostId = device.hostId
+  if (!hostId || hostId === device.id) return null
+  const host = store.deviceById.get(hostId)
+  if (!host || host.kind !== 'physical_server') return null
+  return hostId
+}
+
+function rootPositions(
+  roots: Device[],
+  heights: Map<number, number>,
+): Map<number, { x: number; y: number }> {
   const racks = [...store.racks].sort((a, b) => a.name.localeCompare(b.name))
-  const column = device.rackId
-    ? Math.max(0, racks.findIndex((rack) => rack.id === device.rackId))
-    : racks.length
-  const peers = store.devices
-    .filter((peer) => peer.rackId === device.rackId)
-    .sort((a, b) => (b.rackPosition ?? 0) - (a.rackPosition ?? 0))
-  const row = peers.findIndex((peer) => peer.id === device.id)
-  return {
-    x: 60 + column * 280,
-    y: 60 + (row >= 0 ? row : fallback) * 110,
+  const columnOf = (device: Device) =>
+    device.rackId ? Math.max(0, racks.findIndex((rack) => rack.id === device.rackId)) : racks.length
+
+  const ordered = [...roots].sort((a, b) => {
+    const columnDiff = columnOf(a) - columnOf(b)
+    if (columnDiff !== 0) return columnDiff
+    const positionDiff = (b.rackPosition ?? 0) - (a.rackPosition ?? 0)
+    if (positionDiff !== 0) return positionDiff
+    return a.name.localeCompare(b.name)
+  })
+
+  const cursors = new Map<number, number>()
+  const result = new Map<number, { x: number; y: number }>()
+
+  for (const device of ordered) {
+    const column = columnOf(device)
+    const y = cursors.get(column) ?? 60
+    result.set(device.id, { x: 60 + column * COLUMN_GAP, y })
+    cursors.set(column, y + (heights.get(device.id) ?? ROOT_HEIGHT) + 36)
   }
+
+  return result
 }
 
 function rebuildEdges(): void {
@@ -109,24 +186,95 @@ async function loadGraph(): Promise<void> {
     saved = []
   }
   const savedMap = new Map(saved.map((item) => [item.deviceId, item]))
+  // Keep in-memory positions so editing a device does not discard unsaved drags.
+  const currentPositions = new Map<string, { x: number; y: number }>()
+  const previousParents = new Map<string, string | null>()
+  for (const node of nodes.value) {
+    currentPositions.set(node.id, { x: node.position.x, y: node.position.y })
+    previousParents.set(node.id, node.parentNode ?? null)
+  }
+
+  const childrenByHost = new Map<number, Device[]>()
+  const roots: Device[] = []
+
+  for (const device of store.devices) {
+    const parentId = parentOf(device)
+    if (parentId === null) {
+      roots.push(device)
+      continue
+    }
+    const list = childrenByHost.get(parentId) ?? []
+    list.push(device)
+    childrenByHost.set(parentId, list)
+  }
+
+  for (const list of childrenByHost.values()) {
+    list.sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  const heights = new Map<number, number>()
+  for (const device of roots) {
+    const count = childrenByHost.get(device.id)?.length ?? 0
+    heights.set(device.id, count ? hostHeight(count) : ROOT_HEIGHT)
+  }
+
+  const auto = rootPositions(roots, heights)
   const next: Node[] = []
 
-  store.devices.forEach((device, index) => {
-    const position = savedMap.get(device.id)
-      ? { x: savedMap.get(device.id)!.x, y: savedMap.get(device.id)!.y }
-      : autoPosition(device, index)
+  // Parents must be added before their children, otherwise Vue Flow reports a
+  // missing parent and skips the nesting.
+  for (const device of roots) {
+    const count = childrenByHost.get(device.id)?.length ?? 0
+    const id = nodeId(device)
+    const fallback = auto.get(device.id) ?? { x: 60, y: 60 }
+    const savedPosition = savedMap.get(device.id)
+    // A node that used to be a hosted VM stores a parent-relative position and
+    // must not be reused as an absolute root position.
+    const wasRoot = previousParents.get(id) === null
+    const position =
+      (wasRoot ? currentPositions.get(id) : undefined) ??
+      (savedPosition ? { x: savedPosition.x, y: savedPosition.y } : fallback)
 
     const node: Node = {
-      id: nodeId(device),
+      id,
       type: 'device',
       position,
-      data: { device },
+      data: {
+        device,
+        childCount: count,
+        variant: count ? 'host' : 'device',
+      },
     }
+
+    if (count) {
+      node.width = HOST_WIDTH
+      node.height = hostHeight(count)
+    }
+
     next.push(node)
-  })
+  }
+
+  for (const device of roots) {
+    const children = childrenByHost.get(device.id) ?? []
+    children.forEach((child, index) => {
+      next.push({
+        id: nodeId(child),
+        type: 'device',
+        parentNode: nodeId(device),
+        // Hosted VMs are laid out (and moved) by their host, never dragged out.
+        draggable: false,
+        width: HOST_WIDTH - VM_INSET * 2,
+        height: VM_HEIGHT,
+        position: {
+          x: VM_INSET,
+          y: HOST_HEADER + index * (VM_HEIGHT + VM_GAP),
+        },
+        data: { device: child, variant: 'vm' },
+      })
+    })
+  }
 
   nodes.value = next
-
   rebuildEdges()
 }
 
@@ -140,7 +288,13 @@ watch(
 )
 
 watch(
-  () => store.devices.map((device) => `${device.id}:${device.name}`).join('|'),
+  () =>
+    store.devices
+      .map(
+        (device) =>
+          `${device.id}:${device.updatedAt}:${device.kind}:${device.hostId ?? ''}`,
+      )
+      .join('|'),
   () => {
     void loadGraph()
   },
@@ -149,15 +303,16 @@ watch(
 async function saveLayout(): Promise<void> {
   saving.value = true
   try {
-    const current = nodes.value as unknown as Array<{
-      id: string
-      position: { x: number; y: number }
-    }>
-    const layout = current.map((node) => ({
-      deviceId: Number(node.id),
-      x: node.position.x,
-      y: node.position.y,
-    }))
+    // Hosted VMs are positioned by the host layout, so only root nodes persist.
+    const layout: LayoutNode[] = []
+    for (const node of nodes.value) {
+      if (node.parentNode) continue
+      layout.push({
+        deviceId: Number(node.id),
+        x: node.position.x,
+        y: node.position.y,
+      })
+    }
     await api.saveLayout('default', layout)
     store.notify('拓扑布局已保存')
   } catch (caught) {
@@ -167,16 +322,55 @@ async function saveLayout(): Promise<void> {
   }
 }
 
-function openLinkModal(): void {
-  linkForm.srcDeviceId = ''
+function openLinkModal(prefill?: { sourceId?: string; targetId?: string }): void {
+  linkForm.srcDeviceId = prefill?.sourceId ?? ''
   linkForm.srcPort = ''
-  linkForm.dstDeviceId = ''
+  linkForm.dstDeviceId = prefill?.targetId ?? ''
   linkForm.dstPort = ''
   linkForm.linkType = 'ethernet'
   linkForm.speed = '1G'
   linkForm.note = ''
   linkError.value = ''
   linkOpen.value = true
+}
+
+/**
+ * Dragging between connection points must not create an edge silently: open the
+ * link dialog with both ends prefilled instead.
+ *
+ * Handles are named `out` (bottom → source) and `in` (top → target). In loose
+ * connection mode Vue Flow normalises the connection by handle type, so the
+ * node that owns the `out` handle is always the source.
+ */
+function onConnect(connection: Connection): void {
+  if (connection.source === connection.target) {
+    store.notify('不能连接同一台设备')
+    return
+  }
+
+  let sourceId = connection.source
+  let targetId = connection.target
+
+  const sourceHandle = connection.sourceHandle ?? ''
+  const targetHandle = connection.targetHandle ?? ''
+  if (sourceHandle === 'in' && targetHandle === 'out') {
+    sourceId = connection.target
+    targetId = connection.source
+  } else if (!sourceHandle && !targetHandle) {
+    // Defensive fallback for unnamed handles: the upper node becomes the source.
+    let sourceY = 0
+    let targetY = 0
+    for (const node of nodes.value) {
+      if (node.id === connection.source) sourceY = node.position.y
+      if (node.id === connection.target) targetY = node.position.y
+    }
+    if (sourceY > targetY) {
+      sourceId = connection.target
+      targetId = connection.source
+    }
+  }
+
+  openLinkModal({ sourceId, targetId })
 }
 
 async function submitLink(): Promise<void> {
@@ -223,6 +417,78 @@ async function removeLink(id: number): Promise<void> {
 function deviceName(id: number): string {
   return store.deviceById.get(id)?.name ?? `#${id}`
 }
+
+function closeMenu(): void {
+  menuOpen.value = false
+  menuDevice.value = null
+}
+
+function pointerPosition(event: NodeMouseEvent['event']): { x: number; y: number } {
+  if ('clientX' in event) return { x: event.clientX, y: event.clientY }
+  const touch = event.touches[0] ?? event.changedTouches[0]
+  return { x: touch?.clientX ?? 0, y: touch?.clientY ?? 0 }
+}
+
+function onNodeContextMenu({ event, node }: NodeMouseEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
+
+  const device = store.deviceById.get(Number(node.id))
+  if (!device) return
+
+  const point = pointerPosition(event)
+  menuDevice.value = device
+  menuPosition.x = point.x
+  menuPosition.y = point.y
+  menuOpen.value = true
+}
+
+function openDeviceForm(device: Device, tab: 'basic' | 'credentials'): void {
+  closeMenu()
+  deviceFormDevice.value = device
+  deviceFormTab.value = tab
+  deviceFormOpen.value = true
+}
+
+function addLinkFromMenu(): void {
+  const device = menuDevice.value
+  closeMenu()
+  if (!device) return
+  openLinkModal({ sourceId: String(device.id) })
+}
+
+async function connectFromMenu(
+  type: ConnectionTypeSummary,
+  action: CredentialAction,
+): Promise<void> {
+  const device = menuDevice.value
+  closeMenu()
+  if (!device) return
+  await connect(device.id, type, action)
+}
+
+function editMenuDevice(): void {
+  if (menuDevice.value) openDeviceForm(menuDevice.value, 'basic')
+}
+
+function manageMenuCredentials(): void {
+  if (menuDevice.value) openDeviceForm(menuDevice.value, 'credentials')
+}
+
+async function removeDeviceFromMenu(): Promise<void> {
+  const device = menuDevice.value
+  closeMenu()
+  if (!device) return
+  if (!window.confirm(`确定删除设备「${device.name}」吗？相关凭据与连接会一并删除。`)) {
+    return
+  }
+  try {
+    await store.deleteDevice(device.id)
+    store.notify('设备已删除')
+  } catch (caught) {
+    store.notify(caught instanceof Error ? caught.message : '删除失败')
+  }
+}
 </script>
 
 <template>
@@ -231,7 +497,8 @@ function deviceName(id: number): string {
       <div>
         <h2 class="text-base font-semibold tracking-tight text-slate-100">拓扑</h2>
         <p class="mt-1 text-xs text-slate-500">
-          {{ store.devices.length }} 个节点 · {{ store.links.length }} 条连接 · 拖拽后记得保存布局
+          {{ store.devices.length }} 个节点 · {{ store.links.length }} 条连接 ·
+          拖拽连接点创建连接，右键设备查看更多操作
         </p>
       </div>
       <div class="flex gap-2">
@@ -239,7 +506,7 @@ function deviceName(id: number): string {
           <Save class="h-3.5 w-3.5" />
           {{ saving ? '保存中…' : '保存布局' }}
         </button>
-        <button class="btn btn-primary" @click="openLinkModal">
+        <button class="btn btn-primary" @click="openLinkModal()">
           <Plus class="h-3.5 w-3.5" />
           添加连接
         </button>
@@ -256,7 +523,13 @@ function deviceName(id: number): string {
             :fit-view-on-init="true"
             :min-zoom="0.25"
             :max-zoom="1.6"
+            :connection-radius="30"
+            :delete-key-code="null"
             :default-edge-options="{ type: 'smoothstep' }"
+            @connect="onConnect"
+            @node-context-menu="onNodeContextMenu"
+            @pane-click="closeMenu"
+            @node-drag-start="closeMenu"
           >
             <Background :pattern-color="patternColor" :gap="22" :size="1" />
             <Controls />
@@ -305,7 +578,7 @@ function deviceName(id: number): string {
         <div v-else class="flex flex-1 flex-col items-center justify-center gap-2 py-10 text-center">
           <Link2 class="h-6 w-6 text-slate-600" />
           <p class="text-[11px] text-slate-500">还没有连接</p>
-          <button class="btn btn-ghost mt-1" @click="openLinkModal">添加第一条</button>
+          <button class="btn btn-ghost mt-1" @click="openLinkModal()">添加第一条</button>
         </div>
 
         <div class="mt-4 space-y-1.5 border-t border-white/5 pt-3">
@@ -333,6 +606,37 @@ function deviceName(id: number): string {
         前往设备页面
       </button>
     </div>
+
+    <TopologyNodeMenu
+      :open="menuOpen"
+      :x="menuPosition.x"
+      :y="menuPosition.y"
+      :device="menuDevice"
+      :types="menuTypes"
+      :busy="Boolean(connectingKey)"
+      @close="closeMenu"
+      @connect="connectFromMenu"
+      @add-link="addLinkFromMenu"
+      @credentials="manageMenuCredentials"
+      @edit="editMenuDevice"
+      @remove="removeDeviceFromMenu"
+    />
+
+    <DeviceFormModal
+      :open="deviceFormOpen"
+      :device="deviceFormDevice"
+      :initial-tab="deviceFormTab"
+      @close="deviceFormOpen = false"
+      @saved="deviceFormOpen = false"
+    />
+
+    <CredentialChooserModal
+      :open="chooserOpen"
+      :chooser="chooser"
+      :device-name="chooser ? deviceName(chooser.deviceId) : ''"
+      @close="closeChooser"
+      @select="chooseCredential"
+    />
 
     <Modal :open="linkOpen" title="添加连接" width="max-w-xl" @close="linkOpen = false">
       <form class="space-y-4" @submit.prevent="submitLink">

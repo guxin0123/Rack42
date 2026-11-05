@@ -29,7 +29,7 @@ Rack42 面向单机或小团队使用场景，数据完全保存在本机，适�
 
 - [x] 机柜与 U 位管理（新增、编辑、移动设备、容量热力图）
 - [x] 多类型设备建模：物理服务器、虚拟机、路由器、交换机、防火墙、存储、PDU
-- [x] 设备详情：名称、管理 IP（可多个，首个为主）、MAC、型号、序列号、厂商、操作系统（Windows / Linux / 其他）、状态
+- [x] 设备详情：名称、管理 IP（可多个，首个为主）、型号、序列号、厂商、操作系统（Windows / Linux / 其他）、状态
 - [x] 凭据管理：类型（RDP / SSH / iDRAC / ESXi / Web / 其他）、地址、端口、用户名、密码（加密存储）、备注，支持多凭据绑定同一设备
 - [x] 设备列表快捷连接：按凭据类型启动 RDP（临时 `.rdp` + DPAPI，密码不进命令行）或打开 Web 管理页
 - [x] SSH/SFTP 快捷连接：支持 Xshell/Xftp 7.x、PuTTY/psftp、Windows OpenSSH；默认不把密码放入命令行
@@ -37,7 +37,8 @@ Rack42 面向单机或小团队使用场景，数据完全保存在本机，适�
 - [x] 凭据类型管理：自定义类型、动作、默认端口、内置图标与 PNG/JPEG/WebP 自定义图标
 - [x] 连接审计：记录 RDP/Web/SSH/SFTP 的动作、设备、凭据、目标与结果，不记录密码或用户名
 - [x] 连接关系：设备间线缆连接（类型、速率、端口），VM 与宿主机的归属关系
-- [x] 交互式拓扑图（Vue Flow）：节点拖拽、连线、按类型着色、布局保存
+- [x] 交互式拓扑图（Vue Flow）：节点拖拽、拖拽连接点建连、右键设备菜单、按类型着色、布局保存
+- [x] 虚拟机归属：拓扑中虚拟机嵌套显示在宿主机卡片内（仅一层，不支持嵌套虚拟化）
 - [x] 全局搜索：按名称 / IP / 机架 / 标签快速定位
 - [x] 数据导出（JSON，默认脱敏）
 - [x] 主题切换：深色 / 浅色 / 跟随系统
@@ -272,7 +273,6 @@ CREATE TABLE devices (
     name          TEXT NOT NULL,
     kind          TEXT NOT NULL,        -- physical_server | vm | router | switch | firewall | storage | pdu | other
     mgmt_ips      TEXT NOT NULL DEFAULT '[]', -- 管理 IP 的 JSON 数组，第一个为主 IP
-    mac           TEXT,
     vendor        TEXT,
     model         TEXT,
     serial        TEXT,
@@ -351,7 +351,9 @@ CREATE TABLE audit_logs (
 );
 ```
 
-拓扑图的节点位置（拖拽后的坐标）单独存放在 `topology_layout` 表中，按视图名保存，避免与业务数据耦合。
+拓扑图的节点位置（拖拽后的坐标）单独存放在 `topology_layout` 表中，按视图名保存，避免与业务数据耦合。宿主机内的虚拟机由宿主机卡片自动排布，位置随宿主机推导，不单独落库。
+
+`devices.host_id` 只允许指向 `physical_server` 类型的设备，且只有 `vm` 类型可以设置宿主机；后端拒绝自引用、嵌套虚拟化，宿主机类型变更时会自动解除其虚拟机的归属。
 
 ---
 

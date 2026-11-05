@@ -26,7 +26,7 @@ fn clean(value: &Option<String>) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-const SELECT: &str = "SELECT id, name, kind, mgmt_ips, mac, vendor, model, serial, os, os_family, status, rack_id, rack_position, rack_height, host_id, note, created_at, updated_at FROM devices";
+const SELECT: &str = "SELECT id, name, kind, mgmt_ips, vendor, model, serial, os, os_family, status, rack_id, rack_position, rack_height, host_id, note, created_at, updated_at FROM devices";
 
 fn normalize_ips(values: &[String]) -> AppResult<Vec<String>> {
     let mut ips: Vec<String> = Vec::new();
@@ -163,12 +163,19 @@ async fn prepare(
         if exclude == Some(host_id) {
             return Err(AppError::Validation("设备不能将自己设为宿主机".to_string()));
         }
-        let exists = sqlx::query_scalar::<_, i64>("SELECT id FROM devices WHERE id = ?")
+        if input.kind != "vm" {
+            return Err(AppError::Validation("只有虚拟机可以指定宿主机".to_string()));
+        }
+        let host_kind = sqlx::query_scalar::<_, String>("SELECT kind FROM devices WHERE id = ?")
             .bind(host_id)
             .fetch_optional(pool)
-            .await?;
-        if exists.is_none() {
-            return Err(AppError::Validation("宿主机不存在".to_string()));
+            .await?
+            .ok_or_else(|| AppError::Validation("宿主机不存在".to_string()))?;
+
+        if host_kind != "physical_server" {
+            return Err(AppError::Validation(
+                "宿主机必须是物理服务器，暂不支持嵌套虚拟化".to_string(),
+            ));
         }
     }
 
@@ -182,13 +189,12 @@ pub async fn create(pool: &SqlitePool, input: &DeviceInput) -> AppResult<Device>
 
     let result = sqlx::query(
         "INSERT INTO devices \
-         (name, kind, mgmt_ips, mac, vendor, model, serial, os, os_family, status, rack_id, rack_position, rack_height, host_id, note) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (name, kind, mgmt_ips, vendor, model, serial, os, os_family, status, rack_id, rack_position, rack_height, host_id, note) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(input.name.trim())
     .bind(input.kind.trim())
     .bind(&mgmt_ips)
-    .bind(clean(&input.mac))
     .bind(clean(&input.vendor))
     .bind(clean(&input.model))
     .bind(clean(&input.serial))
@@ -212,7 +218,7 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &DeviceInput) -> AppResul
     let status = input.status.as_deref().unwrap_or("active");
 
     let result = sqlx::query(
-        "UPDATE devices SET name = ?, kind = ?, mgmt_ips = ?, mac = ?, \
+        "UPDATE devices SET name = ?, kind = ?, mgmt_ips = ?, \
          vendor = ?, model = ?, serial = ?, os = ?, os_family = ?, status = ?, rack_id = ?, \
          rack_position = ?, rack_height = ?, host_id = ?, note = ?, updated_at = datetime('now') \
          WHERE id = ?",
@@ -220,7 +226,6 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &DeviceInput) -> AppResul
     .bind(input.name.trim())
     .bind(input.kind.trim())
     .bind(&mgmt_ips)
-    .bind(clean(&input.mac))
     .bind(clean(&input.vendor))
     .bind(clean(&input.model))
     .bind(clean(&input.serial))
@@ -238,6 +243,15 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &DeviceInput) -> AppResul
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);
+    }
+
+    // A device that is no longer a physical server cannot host VMs. Detach
+    // children so the topology never references an invalid parent.
+    if input.kind != "physical_server" {
+        sqlx::query("UPDATE devices SET host_id = NULL WHERE host_id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
     }
 
     get(pool, id).await
