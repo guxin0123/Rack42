@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {
+  ChevronDown,
+  ChevronRight,
   FolderUp,
   Globe,
   Loader2,
@@ -87,6 +89,100 @@ const filtered = computed(() => {
     .sort((a, b) => a.name.localeCompare(b.name))
 })
 
+interface DeviceRow {
+  device: Device
+  depth: number
+  childCount: number
+}
+
+const collapsedHosts = ref<Set<number>>(new Set())
+
+const filtersActive = computed(
+  () =>
+    search.value.trim().length > 0 ||
+    kindFilter.value !== 'all' ||
+    rackFilter.value !== 'all',
+)
+
+const rows = computed<DeviceRow[]>(() => {
+  const matchedIds = new Set(filtered.value.map((device) => device.id))
+
+  const childrenByHost = new Map<number, Device[]>()
+  const hostedIds = new Set<number>()
+  for (const device of store.devices) {
+    if (device.kind !== 'vm' || !device.hostId) continue
+    const host = store.deviceById.get(device.hostId)
+    if (!host || host.id === device.id) continue
+    const list = childrenByHost.get(host.id) ?? []
+    list.push(device)
+    childrenByHost.set(host.id, list)
+    hostedIds.add(device.id)
+  }
+  for (const list of childrenByHost.values()) {
+    list.sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  const topLevel = store.devices
+    .filter((device) => !hostedIds.has(device.id))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const result: DeviceRow[] = []
+
+  for (const device of topLevel) {
+    const children = childrenByHost.get(device.id) ?? []
+    const hostMatches = matchedIds.has(device.id)
+    const matchedChildren = children.filter((child) => matchedIds.has(child.id))
+    // A matching VM must keep its host visible, even when the host itself does
+    // not match the current filters.
+    if (!hostMatches && !matchedChildren.length) continue
+
+    result.push({
+      device,
+      depth: 0,
+      childCount: children.length,
+    })
+
+    const expanded = filtersActive.value || !collapsedHosts.value.has(device.id)
+    if (!expanded) continue
+
+    for (const child of hostMatches ? children : matchedChildren) {
+      result.push({ device: child, depth: 1, childCount: 0 })
+    }
+  }
+
+  return result
+})
+
+const anyCollapsible = computed(() => rows.value.some((row) => row.childCount > 0))
+
+const allCollapsed = computed(() => {
+  const hosts = rows.value.filter((row) => row.childCount > 0)
+  return (
+    hosts.length > 0 && hosts.every((row) => collapsedHosts.value.has(row.device.id))
+  )
+})
+
+function isCollapsed(deviceId: number): boolean {
+  return !filtersActive.value && collapsedHosts.value.has(deviceId)
+}
+
+function toggleHost(deviceId: number): void {
+  const next = new Set(collapsedHosts.value)
+  if (next.has(deviceId)) next.delete(deviceId)
+  else next.add(deviceId)
+  collapsedHosts.value = next
+}
+
+function toggleAll(): void {
+  if (allCollapsed.value) {
+    collapsedHosts.value = new Set()
+    return
+  }
+  collapsedHosts.value = new Set(
+    rows.value.filter((row) => row.childCount > 0).map((row) => row.device.id),
+  )
+}
+
 function createDevice(): void {
   editing.value = null
   formOpen.value = true
@@ -116,7 +212,8 @@ async function removeDevice(device: Device): Promise<void> {
       <div>
         <h2 class="text-base font-semibold tracking-tight text-slate-100">设备</h2>
         <p class="mt-1 text-xs text-slate-500">
-          共 {{ filtered.length }} 台 / {{ store.devices.length }} 台 · 双击设备可直接连接第一条凭据
+          共 {{ filtered.length }} 台 / {{ store.devices.length }} 台 ·
+          宿主机与虚拟机按树形展示，双击设备可直接连接第一条凭据
         </p>
       </div>
       <button class="btn btn-primary" @click="createDevice">
@@ -151,13 +248,22 @@ async function removeDevice(device: Device): Promise<void> {
           {{ rack.name }}
         </option>
       </select>
+
+      <button
+        class="btn btn-ghost"
+        type="button"
+        :disabled="!anyCollapsible || filtersActive"
+        @click="toggleAll"
+      >
+        {{ allCollapsed ? '展开全部' : '收起全部' }}
+      </button>
     </div>
 
     <div class="card overflow-x-auto">
-      <table v-if="filtered.length" class="w-full text-left text-xs">
+      <table v-if="rows.length" class="w-full text-left text-xs">
         <thead class="text-[10px] uppercase tracking-wider text-slate-500">
           <tr class="border-b border-white/5">
-            <th class="px-5 py-3 font-medium">设备</th>
+            <th class="px-5 py-3 font-medium">设备 / 虚拟机</th>
             <th class="px-5 py-3 font-medium">类型</th>
             <th class="px-5 py-3 font-medium">管理 IP</th>
             <th class="px-5 py-3 font-medium">机柜 / U 位</th>
@@ -168,39 +274,82 @@ async function removeDevice(device: Device): Promise<void> {
         </thead>
         <tbody>
           <tr
-            v-for="device in filtered"
-            :key="device.id"
+            v-for="row in rows"
+            :key="row.device.id"
             class="select-none border-b border-white/[0.03] transition last:border-0 hover:bg-white/[0.02]"
-            @dblclick="connectFirst(device)"
+            @dblclick="connectFirst(row.device)"
           >
-            <td class="px-5 py-3">
-              <p class="font-medium text-slate-200">{{ device.name }}</p>
-              <p class="mt-0.5 font-mono text-[10px] text-slate-500">
-                {{ device.serial ?? '—' }}
-              </p>
+            <td
+              class="px-5 py-3"
+              :style="row.depth ? { paddingLeft: '2.75rem' } : undefined"
+            >
+              <div class="flex items-start gap-1.5">
+                <button
+                  v-if="row.childCount"
+                  type="button"
+                  class="mt-0.5 shrink-0 rounded p-0.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-200 disabled:opacity-40"
+                  :disabled="filtersActive"
+                  :title="
+                    filtersActive
+                      ? '筛选状态下自动展开'
+                      : isCollapsed(row.device.id)
+                        ? '展开虚拟机'
+                        : '收起虚拟机'
+                  "
+                  @click.stop="toggleHost(row.device.id)"
+                  @dblclick.stop
+                >
+                  <ChevronRight v-if="isCollapsed(row.device.id)" class="h-3.5 w-3.5" />
+                  <ChevronDown v-else class="h-3.5 w-3.5" />
+                </button>
+                <span v-else-if="row.depth" class="mt-0.5 shrink-0 text-slate-700">└</span>
+
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5">
+                    <p class="truncate font-medium text-slate-200">
+                      {{ row.device.name }}
+                    </p>
+                    <span
+                      v-if="row.childCount"
+                      class="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-500"
+                    >
+                      {{ row.childCount }} 台虚拟机
+                    </span>
+                  </div>
+                  <p class="mt-0.5 truncate font-mono text-[10px] text-slate-500">
+                    <template v-if="row.depth && row.device.hostId">
+                      宿主：{{ deviceNameOf(row.device.hostId) }}
+                    </template>
+                    <template v-else>{{ row.device.serial ?? '—' }}</template>
+                  </p>
+                </div>
+              </div>
             </td>
             <td class="px-5 py-3">
-              <span class="badge" :class="deviceKindMeta[device.kind]?.badge">
-                {{ deviceKindLabel(device.kind) }}
+              <span class="badge" :class="deviceKindMeta[row.device.kind]?.badge">
+                {{ deviceKindLabel(row.device.kind) }}
               </span>
             </td>
             <td class="px-5 py-3 font-mono text-[11px] text-slate-400">
-              <span>{{ device.ips[0] ?? '—' }}</span>
+              <span>{{ row.device.ips[0] ?? '—' }}</span>
               <span
-                v-if="device.ips.length > 1"
+                v-if="row.device.ips.length > 1"
                 class="ml-1.5 rounded bg-white/5 px-1 py-0.5 text-[9px] text-slate-500"
-                :title="device.ips.join('\n')"
+                :title="row.device.ips.join('\n')"
               >
-                +{{ device.ips.length - 1 }}
+                +{{ row.device.ips.length - 1 }}
               </span>
             </td>
             <td class="px-5 py-3 text-slate-400">
-              <template v-if="device.rackId">
+              <template v-if="row.device.rackId">
                 <span class="text-slate-300">
-                  {{ store.rackById.get(device.rackId)?.name ?? '—' }}
+                  {{ store.rackById.get(row.device.rackId)?.name ?? '—' }}
                 </span>
-                <span v-if="device.rackPosition" class="ml-1.5 font-mono text-[10px] text-slate-500">
-                  U{{ device.rackPosition }}
+                <span
+                  v-if="row.device.rackPosition"
+                  class="ml-1.5 font-mono text-[10px] text-slate-500"
+                >
+                  U{{ row.device.rackPosition }}
                 </span>
               </template>
               <span v-else class="text-slate-600">未分配</span>
@@ -209,18 +358,18 @@ async function removeDevice(device: Device): Promise<void> {
               <span class="flex items-center gap-1.5 text-slate-400">
                 <span
                   class="h-1.5 w-1.5 rounded-full"
-                  :class="deviceStatusMeta[device.status]?.dot"
+                  :class="deviceStatusMeta[row.device.status]?.dot"
                 />
-                {{ deviceStatusLabel(device.status) }}
+                {{ deviceStatusLabel(row.device.status) }}
               </span>
             </td>
             <td class="px-5 py-3 text-slate-400">
-              {{ [device.vendor, device.model].filter(Boolean).join(' ') || '—' }}
+              {{ [row.device.vendor, row.device.model].filter(Boolean).join(' ') || '—' }}
             </td>
             <td class="px-5 py-3" @dblclick.stop>
               <div class="flex justify-end gap-1">
                 <template
-                  v-for="type in connectionTypes(device.id)"
+                  v-for="type in connectionTypes(row.device.id)"
                   :key="type.typeId"
                 >
                   <button
@@ -228,11 +377,11 @@ async function removeDevice(device: Device): Promise<void> {
                     :key="`${type.typeId}-${action}`"
                     class="rounded-md p-1.5 text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
                     :title="`${type.name}：${actionLabels[action] ?? action}（${type.credentialCount} 条凭据${type.credentialCount > 1 ? '，点击选择' : ''}）`"
-                    :disabled="isConnecting(device.id, type.typeId, action)"
-                    @click="connect(device.id, type, action)"
+                    :disabled="isConnecting(row.device.id, type.typeId, action)"
+                    @click="connect(row.device.id, type, action)"
                   >
                     <Loader2
-                      v-if="isConnecting(device.id, type.typeId, action)"
+                      v-if="isConnecting(row.device.id, type.typeId, action)"
                       class="h-3.5 w-3.5 animate-spin"
                     />
                     <Monitor v-else-if="action === 'rdp'" class="h-3.5 w-3.5" />
@@ -244,14 +393,14 @@ async function removeDevice(device: Device): Promise<void> {
                 <button
                   class="rounded-md p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-slate-200"
                   title="编辑"
-                  @click="editDevice(device)"
+                  @click="editDevice(row.device)"
                 >
                   <Pencil class="h-3.5 w-3.5" />
                 </button>
                 <button
                   class="rounded-md p-1.5 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-300"
                   title="删除"
-                  @click="removeDevice(device)"
+                  @click="removeDevice(row.device)"
                 >
                   <Trash2 class="h-3.5 w-3.5" />
                 </button>

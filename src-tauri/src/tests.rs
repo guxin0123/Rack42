@@ -6,7 +6,7 @@ use crate::crypto;
 use crate::models::credential::{CredentialInput, PasswordUpdate};
 use crate::models::credential_type::CredentialTypeInput;
 use crate::models::device::DeviceInput;
-use crate::models::layout::LayoutNode;
+use crate::models::layout::{LayoutNode, RackLayoutNode};
 use crate::models::link::LinkInput;
 use crate::models::rack::RackInput;
 use crate::repository::{credential_types, credentials, devices, layout, links, racks};
@@ -842,6 +842,25 @@ async fn links_and_topology_layout_roundtrip() {
 
     let loaded = layout::load(&pool, "default").await.expect("load layout");
     assert_eq!(loaded.len(), 2);
+
+    layout::save_racks(
+        &pool,
+        "default",
+        &[RackLayoutNode {
+            rack_id: rack.id,
+            x: 100.0,
+            y: 200.0,
+        }],
+    )
+    .await
+    .expect("save rack layout");
+
+    let loaded_racks = layout::load_racks(&pool, "default")
+        .await
+        .expect("load rack layout");
+    assert_eq!(loaded_racks.len(), 1);
+    assert_eq!(loaded_racks[0].rack_id, rack.id);
+    assert_eq!(loaded_racks[0].x, 100.0);
 
     links::delete(&pool, link.id).await.expect("delete link");
     assert!(links::list(&pool).await.expect("list links").is_empty());

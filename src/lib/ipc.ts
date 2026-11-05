@@ -18,6 +18,7 @@ import type {
   LinkInput,
   Rack,
   RackInput,
+  RackLayoutNode,
   Stats,
 } from './types'
 
@@ -94,4 +95,8 @@ export const api = {
   loadLayout: (view: string) => call<LayoutNode[]>('load_layout', { view }),
   saveLayout: (view: string, nodes: LayoutNode[]) =>
     call<void>('save_layout', { view, nodes }),
+  loadRackLayout: (view: string) =>
+    call<RackLayoutNode[]>('load_rack_layout', { view }),
+  saveRackLayout: (view: string, nodes: RackLayoutNode[]) =>
+    call<void>('save_rack_layout', { view, nodes }),
 }

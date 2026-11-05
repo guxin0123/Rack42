@@ -8,12 +8,18 @@ import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{
   open: boolean
-  deviceId: number
+  deviceId?: number | null
   primaryIp: string
   credential?: Credential | null
+  /** `draft` collects the form value without touching the backend. */
+  mode?: 'remote' | 'draft'
 }>()
 
-const emit = defineEmits<{ close: []; saved: [] }>()
+const emit = defineEmits<{
+  close: []
+  saved: []
+  save: [input: CredentialInput]
+}>()
 
 const store = useAppStore()
 const busy = ref(false)
@@ -89,7 +95,7 @@ async function submit(): Promise<void> {
   }
 
   const input: CredentialInput = {
-    deviceId: props.deviceId,
+    deviceId: props.deviceId ?? 0,
     typeId: Number(form.typeId),
     label: form.label.trim() || null,
     address: form.followPrimary ? null : form.address.trim() || null,
@@ -99,6 +105,12 @@ async function submit(): Promise<void> {
     password,
     note: form.note.trim() || null,
     isDefault: form.isDefault,
+  }
+
+  if (props.mode === 'draft') {
+    emit('save', input)
+    emit('close')
+    return
   }
 
   busy.value = true

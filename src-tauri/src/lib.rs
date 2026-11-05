@@ -187,6 +187,8 @@ pub fn run() {
             commands::credential::delete_credential,
             commands::layout::load_layout,
             commands::layout::save_layout,
+            commands::layout::load_rack_layout,
+            commands::layout::save_rack_layout,
             commands::data::get_stats,
             commands::data::export_data,
         ])

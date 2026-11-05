@@ -7,3 +7,11 @@ pub struct LayoutNode {
     pub x: f64,
     pub y: f64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct RackLayoutNode {
+    pub rack_id: i64,
+    pub x: f64,
+    pub y: f64,
+}

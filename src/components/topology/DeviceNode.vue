@@ -14,7 +14,7 @@ const props = defineProps<{
   data: {
     device: Device
     childCount?: number
-    variant?: 'device' | 'host' | 'vm'
+    variant?: 'device' | 'host' | 'vm' | 'racked'
   }
 }>()
 
@@ -102,6 +102,47 @@ const childCount = computed(() => props.data.childCount ?? 0)
       </span>
       <span class="ml-auto shrink-0 text-[8px] uppercase tracking-wide text-slate-600">
         VM
+      </span>
+    </div>
+    <p class="mt-0.5 truncate font-mono text-[9px] text-slate-500">
+      {{ device.ips[0] ?? '—' }}
+      <span v-if="device.model"> · {{ device.model }}</span>
+    </p>
+
+    <Handle
+      id="out"
+      type="source"
+      :position="Position.Bottom"
+      class="!h-2 !w-2 !border-0 !bg-slate-600 transition hover:!bg-emerald-400"
+    />
+  </div>
+
+  <!-- Device placed inside a rack container. -->
+  <div
+    v-else-if="variant === 'racked'"
+    class="flex h-full w-full flex-col justify-center rounded-lg border bg-slate-950/95 px-3 py-1.5 shadow-lg shadow-black/15"
+    :style="{ borderColor: `${color}66` }"
+  >
+    <Handle
+      id="in"
+      type="target"
+      :position="Position.Top"
+      class="!h-2 !w-2 !border-0 !bg-slate-600 transition hover:!bg-emerald-400"
+    />
+
+    <div class="flex items-center gap-1.5">
+      <span
+        class="h-1.5 w-1.5 shrink-0 rounded-full"
+        :class="deviceStatusMeta[device.status]?.dot ?? 'bg-slate-500'"
+      />
+      <span class="truncate text-[11px] font-medium text-slate-100">
+        {{ device.name }}
+      </span>
+      <span
+        class="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[8px]"
+        :style="{ color, backgroundColor: `${color}1f` }"
+      >
+        {{ deviceKindLabel(device.kind) }}
       </span>
     </div>
     <p class="mt-0.5 truncate font-mono text-[9px] text-slate-500">

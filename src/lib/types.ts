@@ -207,3 +207,9 @@ export interface LayoutNode {
   x: number
   y: number
 }
+
+export interface RackLayoutNode {
+  rackId: number
+  x: number
+  y: number
+}

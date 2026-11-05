@@ -13,6 +13,7 @@ import {
 } from '@/lib/os'
 import type {
   Credential,
+  CredentialInput,
   Device,
   DeviceKind,
   DeviceStatus,
@@ -40,6 +41,37 @@ const credentialsLoading = ref(false)
 const credentialsDeviceId = ref<number | null>(null)
 const credentialModalOpen = ref(false)
 const editingCredential = ref<Credential | null>(null)
+
+interface CredentialDraft extends CredentialInput {
+  /** Negative local id until the device exists. */
+  id: number
+}
+
+const drafts = ref<CredentialDraft[]>([])
+const draftModalOpen = ref(false)
+const editingDraft = ref<CredentialDraft | null>(null)
+const createdDeviceId = ref<number | null>(null)
+let draftSequence = 0
+
+const draftPrimaryIp = computed(() => (form.ips[0] ?? '').trim())
+
+const editingDraftCredential = computed<Credential | null>(() => {
+  const draft = editingDraft.value
+  if (!draft) return null
+  return {
+    id: draft.id,
+    deviceId: createdDeviceId.value ?? 0,
+    typeId: draft.typeId ?? 0,
+    label: draft.label ?? null,
+    address: draft.address ?? null,
+    port: draft.port ?? null,
+    username: draft.username ?? null,
+    domain: draft.domain ?? null,
+    hasPassword: Boolean(draft.password),
+    note: draft.note ?? null,
+    isDefault: Boolean(draft.isDefault),
+  }
+})
 
 const kinds = Object.entries(deviceKindMeta) as Array<
   [DeviceKind, (typeof deviceKindMeta)[DeviceKind]]
@@ -89,9 +121,16 @@ watch(
     if (!open) {
       credentialModalOpen.value = false
       editingCredential.value = null
+      draftModalOpen.value = false
+      editingDraft.value = null
       return
     }
     error.value = ''
+    drafts.value = []
+    createdDeviceId.value = null
+    draftSequence = 0
+    draftModalOpen.value = false
+    editingDraft.value = null
     const device = props.device
     form.name = device?.name ?? ''
     form.kind = device?.kind ?? 'physical_server'
@@ -154,7 +193,7 @@ async function loadCredentials(): Promise<void> {
   }
 }
 
-function typeName(typeId: number): string {
+function typeName(typeId: number | null | undefined): string {
   return store.credentialTypes.find((type) => type.id === typeId)?.name ?? '其他'
 }
 
@@ -197,6 +236,45 @@ async function removeCredential(credential: Credential): Promise<void> {
   }
 }
 
+function openAddDraft(): void {
+  editingDraft.value = null
+  draftModalOpen.value = true
+}
+
+function openEditDraft(draft: CredentialDraft): void {
+  editingDraft.value = draft
+  draftModalOpen.value = true
+}
+
+function closeDraftModal(): void {
+  draftModalOpen.value = false
+  editingDraft.value = null
+}
+
+function removeDraft(id: number): void {
+  drafts.value = drafts.value.filter((draft) => draft.id !== id)
+}
+
+function onDraftSaved(input: CredentialInput): void {
+  const existing = editingDraft.value
+  if (existing) {
+    // `password: null` from the form means "keep the draft password".
+    const password =
+      input.password === null || input.password === undefined
+        ? existing.password ?? null
+        : input.password || null
+    Object.assign(existing, input, { password })
+  } else {
+    draftSequence -= 1
+    drafts.value = [
+      ...drafts.value,
+      { ...input, password: input.password ?? null, id: draftSequence },
+    ]
+  }
+  draftModalOpen.value = false
+  editingDraft.value = null
+}
+
 function addIp(): void {
   if (form.ips.length >= 16) return
   form.ips.push('')
@@ -220,10 +298,12 @@ function onFamilyChange(): void {
 async function submit(): Promise<void> {
   if (!form.name.trim()) {
     error.value = '请输入设备名称'
+    activeTab.value = 'basic'
     return
   }
   if (form.rackId && !form.rackPosition) {
     error.value = '放入机柜后需要填写起始 U 位'
+    activeTab.value = 'basic'
     return
   }
 
@@ -250,10 +330,50 @@ async function submit(): Promise<void> {
     if (props.device) {
       await store.updateDevice(props.device.id, payload)
       store.notify('设备已更新')
+    } else if (createdDeviceId.value !== null) {
+      await store.updateDevice(createdDeviceId.value, payload)
+      store.notify('设备已更新')
     } else {
-      await store.createDevice(payload)
+      const created = await store.createDevice(payload)
+      createdDeviceId.value = created.id
       store.notify('设备已创建')
     }
+
+    const deviceId = props.device?.id ?? createdDeviceId.value
+    if (deviceId && drafts.value.length) {
+      const failed: CredentialDraft[] = []
+      let savedCount = 0
+
+      for (const draft of [...drafts.value]) {
+        try {
+          await api.createCredential({
+            deviceId,
+            typeId: draft.typeId ?? null,
+            label: draft.label ?? null,
+            address: draft.address ?? null,
+            port: draft.port ?? null,
+            username: draft.username ?? null,
+            domain: draft.domain ?? null,
+            password: draft.password ?? null,
+            note: draft.note ?? null,
+            isDefault: draft.isDefault ?? false,
+          })
+          savedCount += 1
+        } catch {
+          failed.push(draft)
+        }
+      }
+
+      drafts.value = failed
+      await store.refresh()
+
+      if (failed.length) {
+        error.value = `设备已保存，但有 ${failed.length} 条凭据创建失败，请检查后重试`
+        return
+      }
+      if (savedCount) store.notify(`已一并保存 ${savedCount} 条凭据`)
+    }
+
     emit('saved')
     emit('close')
   } catch (caught) {
@@ -286,22 +406,21 @@ async function submit(): Promise<void> {
       </button>
       <button
         type="button"
-        class="-mb-px flex items-center gap-1.5 border-b-2 px-3 pb-2 text-xs transition disabled:cursor-not-allowed disabled:opacity-40"
+        class="-mb-px flex items-center gap-1.5 border-b-2 px-3 pb-2 text-xs transition"
         :class="
           activeTab === 'credentials'
             ? 'border-emerald-400 text-emerald-300'
             : 'border-transparent text-slate-500 hover:text-slate-300'
         "
-        :disabled="!device"
-        :title="device ? '管理该设备的凭据' : '保存设备后可添加凭据'"
+        :title="device ? '管理该设备的凭据' : '先添加凭据，保存设备时一并创建'"
         @click="activeTab = 'credentials'"
       >
         凭据
         <span
-          v-if="credentials.length"
+          v-if="device ? credentials.length : drafts.length"
           class="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-400"
         >
-          {{ credentials.length }}
+          {{ device ? credentials.length : drafts.length }}
         </span>
       </button>
     </div>
@@ -489,24 +608,96 @@ async function submit(): Promise<void> {
           placeholder="用途、责任人、维保信息…"
         />
       </div>
-
-      <p
-        v-if="error"
-        class="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"
-      >
-        {{ error }}
-      </p>
     </form>
 
+    <p
+      v-if="error"
+      class="mb-4 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"
+    >
+      {{ error }}
+    </p>
+
     <div v-if="activeTab === 'credentials'" class="space-y-4">
-      <div
-        v-if="!device"
-        class="flex flex-col items-center gap-2 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-10 text-center"
-      >
-        <KeyRound class="h-6 w-6 text-slate-600" />
-        <p class="text-xs text-slate-400">保存设备后即可添加凭据</p>
-        <p class="text-[10px] text-slate-600">先填写基本信息并保存，再回到「凭据」标签页。</p>
-      </div>
+      <template v-if="!device">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p class="text-xs text-slate-300">新设备凭据</p>
+            <p class="mt-0.5 text-[10px] text-slate-500">
+              凭据会先暂存，点击「创建设备」时与设备一并保存。
+            </p>
+          </div>
+          <button class="btn btn-ghost" type="button" @click="openAddDraft">
+            <Plus class="h-3.5 w-3.5" />
+            添加凭据
+          </button>
+        </div>
+
+        <div
+          v-if="!drafts.length"
+          class="flex flex-col items-center gap-2 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-10 text-center"
+        >
+          <KeyRound class="h-6 w-6 text-slate-600" />
+          <p class="text-xs text-slate-400">还没有凭据</p>
+          <p class="text-[10px] text-slate-600">
+            添加 RDP、SSH、Web 等凭据，保存设备时一并创建。
+          </p>
+          <button class="btn btn-primary mt-1" type="button" @click="openAddDraft">
+            <Plus class="h-3.5 w-3.5" />
+            添加第一条
+          </button>
+        </div>
+
+        <div v-else class="space-y-2">
+          <div
+            v-for="draft in drafts"
+            :key="draft.id"
+            class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2.5"
+          >
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="badge bg-white/5 text-slate-300 ring-white/10">
+                  {{ typeName(draft.typeId) }}
+                </span>
+                <span class="text-xs font-medium text-slate-200">
+                  {{ draft.label ?? '未命名' }}
+                </span>
+                <span
+                  v-if="draft.isDefault"
+                  class="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-300"
+                >
+                  默认
+                </span>
+                <span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] text-amber-300">
+                  待保存
+                </span>
+              </div>
+              <p class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] text-slate-500">
+                <span>{{ draft.username || '无用户名' }}</span>
+                <span>{{ draft.address ?? (draftPrimaryIp || '跟随主 IP') }}</span>
+                <span>端口 {{ draft.port ?? '默认' }}</span>
+              </p>
+            </div>
+            <div class="flex shrink-0 gap-1">
+              <button
+                class="rounded-md p-1.5 text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
+                title="编辑凭据"
+                type="button"
+                @click="openEditDraft(draft)"
+              >
+                <Pencil class="h-3.5 w-3.5" />
+              </button>
+              <button
+                class="rounded-md p-1.5 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-300"
+                title="移除凭据"
+                type="button"
+                @click="removeDraft(draft.id)"
+              >
+                <Trash2 class="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
 
       <template v-else>
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -595,7 +786,15 @@ async function submit(): Promise<void> {
       <template v-if="activeTab === 'basic'">
         <button class="btn btn-ghost" type="button" @click="$emit('close')">取消</button>
         <button class="btn btn-primary" type="button" :disabled="busy" @click="submit">
-          {{ busy ? '保存中…' : device ? '保存修改' : '创建设备' }}
+          {{ busy ? '保存中…' : device || createdDeviceId ? '保存修改' : '创建设备' }}
+        </button>
+      </template>
+      <template v-else-if="!device">
+        <button class="btn btn-ghost" type="button" @click="activeTab = 'basic'">
+          返回信息
+        </button>
+        <button class="btn btn-primary" type="button" :disabled="busy" @click="submit">
+          {{ busy ? '保存中…' : createdDeviceId ? '保存修改' : '创建设备' }}
         </button>
       </template>
       <button v-else class="btn btn-ghost" type="button" @click="$emit('close')">
@@ -612,5 +811,14 @@ async function submit(): Promise<void> {
     :credential="editingCredential"
     @close="credentialModalOpen = false"
     @saved="onCredentialSaved"
+  />
+
+  <CredentialFormModal
+    mode="draft"
+    :open="draftModalOpen"
+    :primary-ip="draftPrimaryIp"
+    :credential="editingDraftCredential"
+    @close="closeDraftModal"
+    @save="onDraftSaved"
   />
 </template>

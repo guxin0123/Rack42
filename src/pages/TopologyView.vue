@@ -18,6 +18,7 @@ import { useRouter } from 'vue-router'
 import CredentialChooserModal from '@/components/device/CredentialChooserModal.vue'
 import DeviceFormModal from '@/components/device/DeviceFormModal.vue'
 import DeviceNode from '@/components/topology/DeviceNode.vue'
+import RackNode from '@/components/topology/RackNode.vue'
 import TopologyNodeMenu from '@/components/topology/TopologyNodeMenu.vue'
 import Modal from '@/components/ui/Modal.vue'
 import { useDeviceConnect } from '@/composables/useDeviceConnect'
@@ -33,6 +34,8 @@ import type {
   Device,
   LayoutNode,
   LinkType,
+  Rack,
+  RackLayoutNode,
 } from '@/lib/types'
 import { useAppStore } from '@/stores/app'
 import { useThemeStore } from '@/stores/theme'
@@ -55,19 +58,33 @@ const {
   closeChooser,
 } = useDeviceConnect()
 
-/** Host container geometry; VM children are laid out by this grid. */
+/**
+ * Container geometry. Racks contain devices, hosts contain their VMs; every
+ * child is positioned relative to its parent and laid out automatically.
+ */
+const RACK_WIDTH = 380
+const RACK_HEADER = 58
+const RACK_INSET = 18
+const RACK_PAD = 12
+const RACK_GAP = 10
+const RACK_COLUMN_GAP = 80
+const RACK_EMPTY_HEIGHT = 130
+const RACK_DEVICE_HEIGHT = 64
+
 const HOST_WIDTH = 300
 const HOST_HEADER = 68
 const VM_HEIGHT = 62
 const VM_GAP = 8
 const VM_INSET = 14
-const ROOT_HEIGHT = 96
-const COLUMN_GAP = 330
+
+const ROOT_DEVICE_HEIGHT = 92
+const ROOT_STACK_GAP = 40
 
 const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
 const nodeTypes: NodeTypesObject = {
   device: markRaw(DeviceNode) as unknown as NodeComponent,
+  rack: markRaw(RackNode) as unknown as NodeComponent,
 }
 const patternColor = computed(() =>
   theme.resolved === 'light' ? '#e2e8f0' : '#1e293b',
@@ -108,6 +125,10 @@ function nodeId(device: Device): string {
   return String(device.id)
 }
 
+function rackNodeId(rack: Rack): string {
+  return `rack-${rack.id}`
+}
+
 function hostHeight(count: number): number {
   return HOST_HEADER + count * VM_HEIGHT + Math.max(0, count - 1) * VM_GAP + 10
 }
@@ -120,35 +141,6 @@ function parentOf(device: Device): number | null {
   const host = store.deviceById.get(hostId)
   if (!host || host.kind !== 'physical_server') return null
   return hostId
-}
-
-function rootPositions(
-  roots: Device[],
-  heights: Map<number, number>,
-): Map<number, { x: number; y: number }> {
-  const racks = [...store.racks].sort((a, b) => a.name.localeCompare(b.name))
-  const columnOf = (device: Device) =>
-    device.rackId ? Math.max(0, racks.findIndex((rack) => rack.id === device.rackId)) : racks.length
-
-  const ordered = [...roots].sort((a, b) => {
-    const columnDiff = columnOf(a) - columnOf(b)
-    if (columnDiff !== 0) return columnDiff
-    const positionDiff = (b.rackPosition ?? 0) - (a.rackPosition ?? 0)
-    if (positionDiff !== 0) return positionDiff
-    return a.name.localeCompare(b.name)
-  })
-
-  const cursors = new Map<number, number>()
-  const result = new Map<number, { x: number; y: number }>()
-
-  for (const device of ordered) {
-    const column = columnOf(device)
-    const y = cursors.get(column) ?? 60
-    result.set(device.id, { x: 60 + column * COLUMN_GAP, y })
-    cursors.set(column, y + (heights.get(device.id) ?? ROOT_HEIGHT) + 36)
-  }
-
-  return result
 }
 
 function rebuildEdges(): void {
@@ -179,13 +171,22 @@ function rebuildEdges(): void {
 }
 
 async function loadGraph(): Promise<void> {
-  let saved: LayoutNode[] = []
+  let savedDevices: LayoutNode[] = []
+  let savedRacks: RackLayoutNode[] = []
   try {
-    saved = await api.loadLayout('default')
+    savedDevices = await api.loadLayout('default')
   } catch {
-    saved = []
+    savedDevices = []
   }
-  const savedMap = new Map(saved.map((item) => [item.deviceId, item]))
+  try {
+    savedRacks = await api.loadRackLayout('default')
+  } catch {
+    savedRacks = []
+  }
+
+  const savedDeviceMap = new Map(savedDevices.map((item) => [item.deviceId, item]))
+  const savedRackMap = new Map(savedRacks.map((item) => [item.rackId, item]))
+
   // Keep in-memory positions so editing a device does not discard unsaved drags.
   const currentPositions = new Map<string, { x: number; y: number }>()
   const previousParents = new Map<string, string | null>()
@@ -193,52 +194,147 @@ async function loadGraph(): Promise<void> {
     currentPositions.set(node.id, { x: node.position.x, y: node.position.y })
     previousParents.set(node.id, node.parentNode ?? null)
   }
+  const wasRoot = (id: string) => previousParents.get(id) === null
 
-  const childrenByHost = new Map<number, Device[]>()
-  const roots: Device[] = []
+  const racks = [...store.racks].sort((a, b) => a.name.localeCompare(b.name))
+  const rackById = store.rackById
+
+  const hostedByHost = new Map<number, Device[]>()
+  const devicesByRack = new Map<number, Device[]>()
+  const standalone: Device[] = []
 
   for (const device of store.devices) {
-    const parentId = parentOf(device)
-    if (parentId === null) {
-      roots.push(device)
+    const hostId = parentOf(device)
+    if (hostId !== null) {
+      const list = hostedByHost.get(hostId) ?? []
+      list.push(device)
+      hostedByHost.set(hostId, list)
       continue
     }
-    const list = childrenByHost.get(parentId) ?? []
-    list.push(device)
-    childrenByHost.set(parentId, list)
+
+    const rackId =
+      device.rackId && rackById.has(device.rackId) ? device.rackId : null
+    if (rackId !== null) {
+      const list = devicesByRack.get(rackId) ?? []
+      list.push(device)
+      devicesByRack.set(rackId, list)
+    } else {
+      standalone.push(device)
+    }
   }
 
-  for (const list of childrenByHost.values()) {
+  for (const list of hostedByHost.values()) {
     list.sort((a, b) => a.name.localeCompare(b.name))
   }
+  for (const list of devicesByRack.values()) {
+    // Top U first, matching a rack elevation view.
+    list.sort((a, b) => {
+      const positionA = a.rackPosition ?? -1
+      const positionB = b.rackPosition ?? -1
+      if (positionA !== positionB) return positionB - positionA
+      return a.name.localeCompare(b.name)
+    })
+  }
+  standalone.sort((a, b) => a.name.localeCompare(b.name))
 
-  const heights = new Map<number, number>()
-  for (const device of roots) {
-    const count = childrenByHost.get(device.id)?.length ?? 0
-    heights.set(device.id, count ? hostHeight(count) : ROOT_HEIGHT)
+  const heightOf = (device: Device, inRack: boolean): number => {
+    const count = hostedByHost.get(device.id)?.length ?? 0
+    if (count) return hostHeight(count)
+    return inRack ? RACK_DEVICE_HEIGHT : ROOT_DEVICE_HEIGHT
   }
 
-  const auto = rootPositions(roots, heights)
+  const rackHeight = (rackId: number): number => {
+    const devices = devicesByRack.get(rackId) ?? []
+    if (!devices.length) return RACK_EMPTY_HEIGHT
+    const content = devices.reduce(
+      (sum, device, index) =>
+        sum + heightOf(device, true) + (index ? RACK_GAP : 0),
+      0,
+    )
+    return RACK_HEADER + RACK_PAD * 2 + content
+  }
+
+  // Racks are roots laid out as a compact grid.
+  const rackHeights = new Map(racks.map((rack) => [rack.id, rackHeight(rack.id)]))
+  const columns = racks.length
+    ? Math.max(1, Math.min(4, Math.ceil(Math.sqrt(racks.length))))
+    : 0
+
+  const rowHeights: number[] = []
+  racks.forEach((rack, index) => {
+    const row = Math.floor(index / Math.max(1, columns))
+    rowHeights[row] = Math.max(rowHeights[row] ?? 0, rackHeights.get(rack.id) ?? 0)
+  })
+  const rowY: number[] = []
+  let rowCursor = 60
+  rowHeights.forEach((height, row) => {
+    rowY[row] = rowCursor
+    rowCursor += height + 80
+  })
+
+  const rackPositions = new Map<number, { x: number; y: number }>()
+  racks.forEach((rack, index) => {
+    const row = Math.floor(index / Math.max(1, columns))
+    const column = index % Math.max(1, columns)
+    rackPositions.set(rack.id, {
+      x: 60 + column * (RACK_WIDTH + RACK_COLUMN_GAP),
+      y: rowY[row] ?? 60,
+    })
+  })
+
+  // Devices without a rack are stacked in a column right of the rack grid.
+  const standaloneX = racks.length
+    ? 60 + Math.max(1, columns) * (RACK_WIDTH + RACK_COLUMN_GAP)
+    : 60
+  let standaloneY = 60
+  const standalonePositions = new Map<number, { x: number; y: number }>()
+  for (const device of standalone) {
+    standalonePositions.set(device.id, { x: standaloneX, y: standaloneY })
+    standaloneY += heightOf(device, false) + ROOT_STACK_GAP
+  }
+
   const next: Node[] = []
 
   // Parents must be added before their children, otherwise Vue Flow reports a
   // missing parent and skips the nesting.
-  for (const device of roots) {
-    const count = childrenByHost.get(device.id)?.length ?? 0
+  for (const rack of racks) {
+    const id = rackNodeId(rack)
+    const devices = devicesByRack.get(rack.id) ?? []
+    const saved = savedRackMap.get(rack.id)
+    const previous = wasRoot(id) ? currentPositions.get(id) : undefined
+    const usedU = devices.reduce(
+      (sum, device) => sum + (device.rackPosition ? device.rackHeight : 0),
+      0,
+    )
+
+    next.push({
+      id,
+      type: 'rack',
+      position:
+        previous ??
+        (saved ? { x: saved.x, y: saved.y } : rackPositions.get(rack.id) ?? { x: 60, y: 60 }),
+      draggable: true,
+      connectable: false,
+      width: RACK_WIDTH,
+      height: rackHeights.get(rack.id) ?? RACK_EMPTY_HEIGHT,
+      data: { rack, deviceCount: devices.length, usedU },
+    })
+  }
+
+  for (const device of standalone) {
     const id = nodeId(device)
-    const fallback = auto.get(device.id) ?? { x: 60, y: 60 }
-    const savedPosition = savedMap.get(device.id)
-    // A node that used to be a hosted VM stores a parent-relative position and
-    // must not be reused as an absolute root position.
-    const wasRoot = previousParents.get(id) === null
-    const position =
-      (wasRoot ? currentPositions.get(id) : undefined) ??
-      (savedPosition ? { x: savedPosition.x, y: savedPosition.y } : fallback)
+    const count = hostedByHost.get(device.id)?.length ?? 0
+    const saved = savedDeviceMap.get(device.id)
+    const previous = wasRoot(id) ? currentPositions.get(id) : undefined
 
     const node: Node = {
       id,
       type: 'device',
-      position,
+      position:
+        previous ??
+        (saved
+          ? { x: saved.x, y: saved.y }
+          : standalonePositions.get(device.id) ?? { x: 60, y: 60 }),
       data: {
         device,
         childCount: count,
@@ -254,8 +350,42 @@ async function loadGraph(): Promise<void> {
     next.push(node)
   }
 
-  for (const device of roots) {
-    const children = childrenByHost.get(device.id) ?? []
+  for (const rack of racks) {
+    const devices = devicesByRack.get(rack.id) ?? []
+    let y = RACK_HEADER + RACK_PAD
+    const width = RACK_WIDTH - RACK_INSET * 2
+
+    for (const device of devices) {
+      const count = hostedByHost.get(device.id)?.length ?? 0
+      const height = heightOf(device, true)
+
+      next.push({
+        id: nodeId(device),
+        type: 'device',
+        parentNode: rackNodeId(rack),
+        // Rack contents are arranged automatically and move with the rack.
+        draggable: false,
+        width,
+        height,
+        position: { x: RACK_INSET, y },
+        data: {
+          device,
+          childCount: count,
+          variant: count ? 'host' : 'racked',
+        },
+      })
+
+      y += height + RACK_GAP
+    }
+  }
+
+  for (const device of store.devices) {
+    const children = hostedByHost.get(device.id)
+    if (!children?.length) continue
+
+    const inRack = Boolean(device.rackId && rackById.has(device.rackId))
+    const width = inRack ? RACK_WIDTH - RACK_INSET * 2 : HOST_WIDTH
+
     children.forEach((child, index) => {
       next.push({
         id: nodeId(child),
@@ -263,7 +393,7 @@ async function loadGraph(): Promise<void> {
         parentNode: nodeId(device),
         // Hosted VMs are laid out (and moved) by their host, never dragged out.
         draggable: false,
-        width: HOST_WIDTH - VM_INSET * 2,
+        width: width - VM_INSET * 2,
         height: VM_HEIGHT,
         position: {
           x: VM_INSET,
@@ -288,13 +418,18 @@ watch(
 )
 
 watch(
-  () =>
-    store.devices
+  () => {
+    const rackKey = store.racks
+      .map((rack) => `${rack.id}:${rack.name}:${rack.location ?? ''}:${rack.totalU}`)
+      .join('|')
+    const deviceKey = store.devices
       .map(
         (device) =>
-          `${device.id}:${device.updatedAt}:${device.kind}:${device.hostId ?? ''}`,
+          `${device.id}:${device.updatedAt}:${device.kind}:${device.hostId ?? ''}:${device.rackId ?? ''}`,
       )
-      .join('|'),
+      .join('|')
+    return `${rackKey}#${deviceKey}`
+  },
   () => {
     void loadGraph()
   },
@@ -303,17 +438,30 @@ watch(
 async function saveLayout(): Promise<void> {
   saving.value = true
   try {
-    // Hosted VMs are positioned by the host layout, so only root nodes persist.
-    const layout: LayoutNode[] = []
+    // Racks and rack-less devices are roots; devices inside racks and hosted
+    // VMs are positioned by their parent, so only roots persist.
+    const deviceLayout: LayoutNode[] = []
+    const rackLayout: RackLayoutNode[] = []
+
     for (const node of nodes.value) {
       if (node.parentNode) continue
-      layout.push({
-        deviceId: Number(node.id),
-        x: node.position.x,
-        y: node.position.y,
-      })
+      if (node.type === 'rack') {
+        rackLayout.push({
+          rackId: Number(node.id.replace('rack-', '')),
+          x: node.position.x,
+          y: node.position.y,
+        })
+      } else {
+        deviceLayout.push({
+          deviceId: Number(node.id),
+          x: node.position.x,
+          y: node.position.y,
+        })
+      }
     }
-    await api.saveLayout('default', layout)
+
+    await api.saveLayout('default', deviceLayout)
+    await api.saveRackLayout('default', rackLayout)
     store.notify('拓扑布局已保存')
   } catch (caught) {
     store.notify(caught instanceof Error ? caught.message : '保存布局失败')
@@ -497,8 +645,8 @@ async function removeDeviceFromMenu(): Promise<void> {
       <div>
         <h2 class="text-base font-semibold tracking-tight text-slate-100">拓扑</h2>
         <p class="mt-1 text-xs text-slate-500">
-          {{ store.devices.length }} 个节点 · {{ store.links.length }} 条连接 ·
-          拖拽连接点创建连接，右键设备查看更多操作
+          {{ store.racks.length }} 个机柜 · {{ store.devices.length }} 个节点 ·
+          {{ store.links.length }} 条连接 · 拖拽连接点创建连接，右键设备查看更多操作
         </p>
       </div>
       <div class="flex gap-2">
@@ -513,7 +661,7 @@ async function removeDeviceFromMenu(): Promise<void> {
       </div>
     </div>
 
-    <div v-if="store.devices.length" class="grid grid-cols-4 gap-4">
+    <div v-if="store.devices.length || store.racks.length" class="grid grid-cols-4 gap-4">
       <section class="card col-span-3 overflow-hidden">
         <div class="h-[calc(100vh-13rem)] min-h-[30rem] w-full">
           <VueFlow
@@ -598,9 +746,9 @@ async function removeDeviceFromMenu(): Promise<void> {
     </div>
 
     <div v-else class="card flex flex-col items-center justify-center gap-3 px-6 py-20 text-center">
-      <p class="text-sm font-medium text-slate-300">还没有可展示的设备</p>
+      <p class="text-sm font-medium text-slate-300">还没有可展示的机柜或设备</p>
       <p class="max-w-sm text-xs leading-5 text-slate-500">
-        先在「设备」中添加服务器、交换机和连接关系，拓扑图会自动生成。
+        先在「机柜」中创建机柜、在「设备」中添加设备，拓扑图会自动生成。
       </p>
       <button class="btn btn-primary" @click="router.push('/devices')">
         前往设备页面
