@@ -79,6 +79,16 @@ const VM_HEIGHT = 62
 const VM_GAP = 28
 const VM_INSET = 14
 
+/**
+ * Viewport stacking: rack (0) < host (1) < edges (10) < device/VM cards (20).
+ * Edges must sit above the container backgrounds, otherwise links drawn inside
+ * a rack or host are hidden by its fill; cards still cover the line endpoints.
+ */
+const RACK_Z_INDEX = 0
+const HOST_Z_INDEX = 1
+const EDGE_Z_INDEX = 10
+const CARD_Z_INDEX = 20
+
 const ROOT_DEVICE_HEIGHT = 92
 const ROOT_STACK_GAP = 40
 
@@ -155,6 +165,7 @@ function rebuildEdges(): void {
       target: String(link.dstDeviceId),
       type: 'smoothstep',
       animated: link.linkType === 'power',
+      zIndex: EDGE_Z_INDEX,
       label:
         [link.linkType ? linkTypeLabel(link.linkType) : null, link.speed]
           .filter(Boolean)
@@ -317,6 +328,7 @@ async function loadGraph(): Promise<void> {
         (saved ? { x: saved.x, y: saved.y } : rackPositions.get(rack.id) ?? { x: 60, y: 60 }),
       draggable: true,
       connectable: false,
+      zIndex: RACK_Z_INDEX,
       width: RACK_WIDTH,
       height: rackHeights.get(rack.id) ?? RACK_EMPTY_HEIGHT,
       data: { rack, deviceCount: devices.length, usedU },
@@ -337,6 +349,7 @@ async function loadGraph(): Promise<void> {
         (saved
           ? { x: saved.x, y: saved.y }
           : standalonePositions.get(device.id) ?? { x: 60, y: 60 }),
+      zIndex: count ? HOST_Z_INDEX : CARD_Z_INDEX,
       data: {
         device,
         childCount: count,
@@ -367,6 +380,7 @@ async function loadGraph(): Promise<void> {
         parentNode: rackNodeId(rack),
         // Rack contents are arranged automatically and move with the rack.
         draggable: false,
+        zIndex: count ? HOST_Z_INDEX : CARD_Z_INDEX,
         width,
         height,
         position: { x: RACK_INSET, y },
@@ -395,6 +409,7 @@ async function loadGraph(): Promise<void> {
         parentNode: nodeId(device),
         // Hosted VMs are laid out (and moved) by their host, never dragged out.
         draggable: false,
+        zIndex: CARD_Z_INDEX,
         width: width - VM_INSET * 2,
         height: VM_HEIGHT,
         position: {
