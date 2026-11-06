@@ -6,5 +6,6 @@ pub mod device;
 pub mod ip;
 pub mod layout;
 pub mod link;
+pub mod probe;
 pub mod rack;
 pub mod security;

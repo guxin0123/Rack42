@@ -4,6 +4,7 @@ mod crypto;
 mod db;
 mod error;
 mod models;
+mod probe;
 mod repository;
 mod ssh;
 mod state;
@@ -192,6 +193,7 @@ pub fn run() {
             commands::data::get_stats,
             commands::data::export_data,
             commands::ip::list_ip_overview,
+            commands::probe::probe_device_ports,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Rack42");

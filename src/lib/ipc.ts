@@ -13,6 +13,7 @@ import type {
   Device,
   DeviceConnectionSummary,
   DeviceInput,
+  DevicePortProbe,
   IpOverviewEntry,
   LayoutNode,
   Link,
@@ -92,6 +93,8 @@ export const api = {
 
   stats: () => call<Stats>('get_stats'),
   listIpOverview: () => call<IpOverviewEntry[]>('list_ip_overview'),
+  probeDevicePorts: (deviceId: number) =>
+    call<DevicePortProbe>('probe_device_ports', { deviceId }),
   exportData: () => call<string>('export_data'),
 
   loadLayout: (view: string) => call<LayoutNode[]>('load_layout', { view }),

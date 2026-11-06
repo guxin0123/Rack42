@@ -223,3 +223,19 @@ export interface IpOverviewEntry {
   credentialId: number | null
   credentialLabel: string | null
 }
+
+export interface PortProbe {
+  credentialId: number
+  label: string | null
+  address: string
+  port: number
+  reachable: boolean
+  latencyMs: number | null
+  error: string | null
+}
+
+export interface DevicePortProbe {
+  deviceId: number
+  probes: PortProbe[]
+  minLatencyMs: number | null
+}

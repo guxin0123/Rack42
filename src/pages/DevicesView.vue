@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  Activity,
   ChevronDown,
   ChevronRight,
   Loader2,
@@ -19,13 +20,20 @@ import {
   credentialIconComponent,
   isCustomCredentialIcon,
 } from '@/lib/credentialIcons'
+import { api } from '@/lib/ipc'
 import {
   deviceKindLabel,
   deviceKindMeta,
   deviceStatusLabel,
   deviceStatusMeta,
 } from '@/lib/format'
-import type { ConnectionTypeSummary, CredentialAction, Device, DeviceKind } from '@/lib/types'
+import type {
+  ConnectionTypeSummary,
+  CredentialAction,
+  Device,
+  DeviceKind,
+  DevicePortProbe,
+} from '@/lib/types'
 import { useAppStore } from '@/stores/app'
 
 const store = useAppStore()
@@ -58,9 +66,137 @@ const menuTypes = computed(() =>
   menuDevice.value ? connectionTypes(menuDevice.value.id) : [],
 )
 
+const latency = reactive(new Map<number, DevicePortProbe>())
+const latencyLoading = reactive(new Set<number>())
+const latencyErrors = reactive(new Map<number, string>())
+const latencySignatures = new Map<number, string>()
+const latencyQueue: number[] = []
+const MAX_PARALLEL_PROBES = 4
+let activeProbes = 0
+
 function deviceNameOf(deviceId: number): string {
   return store.deviceById.get(deviceId)?.name ?? ''
 }
+
+function allConnectionTypes(deviceId: number): ConnectionTypeSummary[] {
+  return store.deviceConnections.find((item) => item.deviceId === deviceId)?.types ?? []
+}
+
+function hasCredentials(deviceId: number): boolean {
+  return allConnectionTypes(deviceId).length > 0
+}
+
+function credentialSignature(deviceId: number): string {
+  return allConnectionTypes(deviceId)
+    .map(
+      (type) =>
+        `${type.typeId}:${type.credentials.map((credential) => credential.id).join(',')}`,
+    )
+    .join('|')
+}
+
+async function runProbe(deviceId: number): Promise<void> {
+  latencyLoading.add(deviceId)
+  try {
+    latency.set(deviceId, await api.probeDevicePorts(deviceId))
+    latencyErrors.delete(deviceId)
+  } catch (caught) {
+    latencyErrors.set(
+      deviceId,
+      caught instanceof Error ? caught.message : '端口探测失败',
+    )
+  } finally {
+    latencyLoading.delete(deviceId)
+  }
+}
+
+function drainProbeQueue(): void {
+  while (activeProbes < MAX_PARALLEL_PROBES && latencyQueue.length) {
+    const deviceId = latencyQueue.shift()
+    if (deviceId === undefined || latencyLoading.has(deviceId)) continue
+    activeProbes += 1
+    void runProbe(deviceId).finally(() => {
+      activeProbes -= 1
+      drainProbeQueue()
+    })
+  }
+}
+
+function enqueueProbe(deviceId: number): void {
+  if (latencyLoading.has(deviceId) || latencyQueue.includes(deviceId)) return
+  latencyQueue.push(deviceId)
+  drainProbeQueue()
+}
+
+function probePendingDevices(): void {
+  const known = new Set(store.devices.map((device) => device.id))
+  for (const id of [...latency.keys()]) if (!known.has(id)) latency.delete(id)
+  for (const id of [...latencyErrors.keys()]) if (!known.has(id)) latencyErrors.delete(id)
+  for (const id of [...latencySignatures.keys()]) if (!known.has(id)) latencySignatures.delete(id)
+
+  for (const device of store.devices) {
+    if (!hasCredentials(device.id)) {
+      latency.delete(device.id)
+      latencyErrors.delete(device.id)
+      latencySignatures.delete(device.id)
+      continue
+    }
+
+    const signature = credentialSignature(device.id)
+    if (latencySignatures.get(device.id) === signature && latency.has(device.id)) {
+      continue
+    }
+    latencySignatures.set(device.id, signature)
+    enqueueProbe(device.id)
+  }
+}
+
+function refreshLatency(): void {
+  latency.clear()
+  latencyErrors.clear()
+  latencySignatures.clear()
+  probePendingDevices()
+}
+
+function latencyTone(probe: DevicePortProbe): string {
+  if (probe.minLatencyMs === null) {
+    return 'text-rose-300 bg-rose-500/10 ring-rose-500/20'
+  }
+  if (probe.minLatencyMs < 50) {
+    return 'text-emerald-300 bg-emerald-500/10 ring-emerald-500/20'
+  }
+  if (probe.minLatencyMs < 150) {
+    return 'text-amber-300 bg-amber-500/10 ring-amber-500/20'
+  }
+  return 'text-rose-300 bg-rose-500/10 ring-rose-500/20'
+}
+
+function latencyTitle(probe: DevicePortProbe): string {
+  return probe.probes
+    .map(
+      (item) =>
+        `${item.label ?? '凭据'} · ${item.address || '—'}:${item.port || '—'} · ${
+          item.reachable ? `${item.latencyMs} ms` : (item.error ?? '不可达')
+        }`,
+    )
+    .join('\n')
+}
+
+watch(
+  () =>
+    [
+      store.devices.map((device) => device.id).join(','),
+      store.deviceConnections
+        .map((item) =>
+          item.types
+            .map((type) => `${type.typeId}:${type.credentialCount}`)
+            .join('-'),
+        )
+        .join('|'),
+    ].join('#'),
+  () => probePendingDevices(),
+  { immediate: true },
+)
 
 const kindOptions = Object.entries(deviceKindMeta).map(([value, meta]) => ({
   value: value as DeviceKind,
@@ -340,6 +476,16 @@ async function removeDevice(device: Device): Promise<void> {
       >
         {{ allCollapsed ? '展开全部' : '收起全部' }}
       </button>
+
+      <button
+        class="btn btn-ghost"
+        type="button"
+        :disabled="!store.deviceConnections.length"
+        @click="refreshLatency"
+      >
+        <Activity class="h-3.5 w-3.5" />
+        刷新延迟
+      </button>
     </div>
 
     <div class="card overflow-x-auto">
@@ -351,6 +497,7 @@ async function removeDevice(device: Device): Promise<void> {
             <th class="px-5 py-3 font-medium">管理 IP</th>
             <th class="px-5 py-3 font-medium">机柜 / U 位</th>
             <th class="px-5 py-3 font-medium">状态</th>
+            <th class="px-5 py-3 font-medium">端口延迟</th>
             <th class="px-5 py-3 font-medium">厂商 / 型号</th>
             <th class="px-5 py-3 text-right font-medium">操作</th>
           </tr>
@@ -446,6 +593,37 @@ async function removeDevice(device: Device): Promise<void> {
                 />
                 {{ deviceStatusLabel(row.device.status) }}
               </span>
+            </td>
+            <td class="px-5 py-3">
+              <template v-if="hasCredentials(row.device.id)">
+                <span
+                  v-if="latencyLoading.has(row.device.id)"
+                  class="text-[10px] text-slate-500"
+                >
+                  探测中…
+                </span>
+                <span
+                  v-else-if="latency.get(row.device.id)"
+                  class="inline-flex items-center rounded px-1.5 py-0.5 font-mono text-[10px] ring-1 ring-inset"
+                  :class="latencyTone(latency.get(row.device.id)!)"
+                  :title="latencyTitle(latency.get(row.device.id)!)"
+                >
+                  {{
+                    latency.get(row.device.id)!.minLatencyMs === null
+                      ? '不可达'
+                      : `${latency.get(row.device.id)!.minLatencyMs} ms`
+                  }}
+                </span>
+                <span
+                  v-else-if="latencyErrors.get(row.device.id)"
+                  class="text-[10px] text-rose-300"
+                  :title="latencyErrors.get(row.device.id)"
+                >
+                  探测失败
+                </span>
+                <span v-else class="text-[10px] text-slate-600">—</span>
+              </template>
+              <span v-else class="text-[10px] text-slate-600">—</span>
             </td>
             <td class="px-5 py-3 text-slate-400">
               {{ [row.device.vendor, row.device.model].filter(Boolean).join(' ') || '—' }}
