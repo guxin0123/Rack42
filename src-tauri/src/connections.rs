@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -62,6 +62,29 @@ struct ConnectionRow {
 pub struct ConnectResult {
     pub action: String,
     pub target: String,
+    /// True when the credential password was copied to the clipboard for the
+    /// SSH/SFTP client and will be cleared automatically.
+    pub clipboard: bool,
+}
+
+const CLIPBOARD_CLEAR_DELAY: Duration = Duration::from_secs(10);
+
+fn copy_password_to_clipboard(password: Option<&str>) -> bool {
+    let Some(password) = password.filter(|value| !value.is_empty()) else {
+        return false;
+    };
+
+    if !crate::clipboard::copy_text(password) {
+        return false;
+    }
+
+    let expected = Zeroizing::new(password.to_string());
+    std::thread::spawn(move || {
+        std::thread::sleep(CLIPBOARD_CLEAR_DELAY);
+        let _ = crate::clipboard::clear_if_matches(&expected);
+    });
+
+    true
 }
 
 pub async fn list_device_connections(pool: &SqlitePool) -> AppResult<Vec<DeviceConnectionSummary>> {
@@ -242,12 +265,13 @@ async fn dispatch(
         return Ok(ConnectResult {
             action: action.to_string(),
             target: url,
+            clipboard: false,
         });
     }
 
     if action == "ssh" || action == "sftp" {
         let settings = ssh::load(&state.db).await?;
-        let password = if settings.auto_fill_password && credential.has_password {
+        let password = if credential.has_password {
             let cipher = credentials::cipher_for(&state.db, credential.id).await?;
             let key = state.require_key()?;
             Some(Zeroizing::new(crypto::decrypt(&key, &cipher)?))
@@ -261,12 +285,21 @@ async fn dispatch(
             address,
             port,
             credential.username.as_deref().unwrap_or(""),
-            password.as_ref().map(|value| value.as_str()),
+            if settings.auto_fill_password {
+                password.as_ref().map(|value| value.as_str())
+            } else {
+                None
+            },
         )?;
+
+        // The client prompts for the password; copy it so the user can paste
+        // it immediately. The clipboard is cleared again after 10 seconds.
+        let clipboard = copy_password_to_clipboard(password.as_ref().map(|value| value.as_str()));
 
         return Ok(ConnectResult {
             action: action.to_string(),
             target: format!("{address}:{port}"),
+            clipboard,
         });
     }
 
@@ -334,6 +367,7 @@ async fn dispatch(
     Ok(ConnectResult {
         action: action.to_string(),
         target,
+        clipboard: false,
     })
 }
 

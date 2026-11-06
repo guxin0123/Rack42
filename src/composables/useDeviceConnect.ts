@@ -138,8 +138,14 @@ export function useDeviceConnect() {
     connectingKey.value = key
 
     try {
-      await api.connectCredential(credentialId, action)
-      store.notify(actionStarted[action] ?? '已启动连接')
+      const result = await api.connectCredential(credentialId, action)
+      if (result.clipboard) {
+        store.notify(
+          `${actionStarted[action] ?? '已启动连接'}；密码已复制到剪贴板，10 秒后自动清除`,
+        )
+      } else {
+        store.notify(actionStarted[action] ?? '已启动连接')
+      }
     } catch (caught) {
       store.notify(caught instanceof Error ? caught.message : '连接失败')
     } finally {

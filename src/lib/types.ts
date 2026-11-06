@@ -166,6 +166,7 @@ export interface DeviceConnectionSummary {
 export interface ConnectResult {
   action: string
   target: string
+  clipboard: boolean
 }
 
 export type SshClient = 'xshell' | 'putty' | 'openssh'
