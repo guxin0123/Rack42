@@ -228,6 +228,32 @@ release/Rack42-<version>-windows-x64.zip
 
 > WebView2 运行时需要系统已安装；Windows 10 1903+ / Windows 11 通常已预装。若面向干净系统分发，可在压缩包中附带 WebView2 安装程序并注明。
 
+### 构建速度
+
+| 场景 | 命令 | 实测耗时（i9-13900K，增量） |
+|---|---|---|
+| 前端/交互开发 | `npm run tauri:dev` | 修改前端热更新，不重新编译 Rust |
+| 快速打包验证 | `npm run tauri:build:debug` | 约 19 秒 |
+| 正式便携包 | `npm run tauri:build` | 约 58 秒 |
+
+说明与建议：
+
+- 最慢的是 release 编译：Tauri 会把 `dist/` 嵌入可执行文件，**前端改动也会让 `rack42` crate 重新编译**，这是打包耗时的主要原因。
+- release profile 已使用 `lto = "thin"` + `codegen-units = 16`；相比原来的 `lto = true` + `codegen-units = 1`（约 2 分 16 秒），打包时间缩短到约 58 秒，产物略大（zip 约 3.4 MB）。需要极限体积时可临时改回 fat LTO。
+- 不要频繁执行 `cargo clean`；只清理应用 crate 可用 `cargo clean -p rack42 --release`。
+- 把项目目录、`%USERPROFILE%\.cargo`、`%LOCALAPPDATA%\tauri` 加入 Windows Defender 排除项，通常能明显加快 Rust 编译：
+  ```powershell
+  Add-MpPreference -ExclusionPath "D:\Code\Rack42"
+  Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo"
+  ```
+- 可选安装 sccache 缓存依赖编译：
+  ```powershell
+  cargo install sccache
+  $env:RUSTC_WRAPPER = 'sccache'
+  npm run tauri:build
+  ```
+- 只检查 Rust 编译错误时用 `npm run check:rust`（`cargo check`），比完整链接快很多。
+
 ---
 
 ## 数据模型（核心表）

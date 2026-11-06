@@ -43,8 +43,11 @@ windows-sys = { version = "0.60", features = [
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [profile.release]
-codegen-units = 1
-lto = true
+# Thin LTO + parallel codegen keeps packaging builds reasonably fast while
+# still producing a small binary. Use `lto = "fat"` + codegen-units = 1 only
+# for a final release where build time is not a concern.
+codegen-units = 16
+lto = "thin"
 opt-level = "s"
 strip = true
 

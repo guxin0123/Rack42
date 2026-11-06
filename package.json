@@ -8,6 +8,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
+    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-portable.ps1",
