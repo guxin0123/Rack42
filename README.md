@@ -30,6 +30,27 @@ Rack42 面向单机或小团队使用场景，数据完全保存在本机，适�
 
 ---
 
+## 界面预览
+
+<table>
+  <tr>
+    <td width="50%"><strong>总览</strong><br /><img src="assets/screenshots/dashboard.png" alt="总览" width="100%" /></td>
+    <td width="50%"><strong>机柜 U 位视图</strong><br /><img src="assets/screenshots/rack-detail.png" alt="机柜 U 位视图" width="100%" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><strong>关系拓扑</strong><br /><img src="assets/screenshots/topology.png" alt="关系拓扑" width="100%" /></td>
+    <td width="50%"><strong>设备列表</strong><br /><img src="assets/screenshots/devices.png" alt="设备列表" width="100%" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><strong>IP 总览</strong><br /><img src="assets/screenshots/ip-overview.png" alt="IP 总览" width="100%" /></td>
+    <td width="50%"><strong>凭据管理</strong><br /><img src="assets/screenshots/credentials.png" alt="凭据管理" width="100%" /></td>
+  </tr>
+</table>
+
+> 截图由首次启动时的「生成示例数据」生成；示例 IP 为演示地址。
+
+---
+
 ## 功能特性
 
 ### 已规划 / 核心功能
@@ -58,6 +79,7 @@ Rack42 面向单机或小团队使用场景，数据完全保存在本机，适�
 - [x] 全局搜索：按名称 / IP / 机架 / 标签快速定位
 - [x] 数据导出（JSON，默认脱敏）
 - [x] 主题切换：深色 / 浅色 / 跟随系统
+- [x] 首次启动可勾选「生成示例数据」，自动创建机柜、设备、虚拟机、连接与示例凭据，便于快速体验
 
 ### 后续迭代
 
@@ -211,6 +233,14 @@ npm run dev
 > 需要自定义位置时，可在启动前设置环境变量 `RACK42_DATA_DIR`；默认数据库位于
 > `%LOCALAPPDATA%\com.guxin0123.rack42\rack42.db`。如果该目录不可写，启动器会依次回退到
 > `%APPDATA%`、系统临时目录和程序目录下的 `data` 文件夹。
+
+### 首次启动与示例数据
+
+设置主密码时可以勾选「生成示例数据」，自动创建 3 个机柜、15 台设备/虚拟机、9 条连接与 12 条示例凭据，便于直接体验完整界面。
+
+<img src="assets/screenshots/setup.png" alt="首次启动与生成示例数据" width="640" />
+
+> 示例数据使用 `10.10.x.x` 演示地址，端口探测会显示不可达；示例凭据密码为 `Demo#2026!`，可随时删除或修改。
 
 ---
 

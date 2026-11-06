@@ -19,7 +19,11 @@ pub async fn get_bootstrap_state(state: State<'_, AppState>) -> AppResult<Bootst
 }
 
 #[tauri::command]
-pub async fn setup_master_password(state: State<'_, AppState>, password: String) -> AppResult<()> {
+pub async fn setup_master_password(
+    state: State<'_, AppState>,
+    password: String,
+    sample_data: Option<bool>,
+) -> AppResult<()> {
     if password.chars().count() < 4 {
         return Err(AppError::Validation("主密码至少需要 4 个字符".to_string()));
     }
@@ -32,8 +36,29 @@ pub async fn setup_master_password(state: State<'_, AppState>, password: String)
     let key = crypto::derive_key(&password, &salt)?;
     let verifier = crypto::fingerprint(&key);
 
-    settings::set(&state.db, "master_salt", &crypto::to_hex(&salt)).await?;
-    settings::set(&state.db, "master_verifier", &verifier).await?;
+    let mut transaction = state.db.begin().await?;
+
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ('master_salt', ?) \
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(crypto::to_hex(&salt))
+    .execute(&mut *transaction)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ('master_verifier', ?) \
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(&verifier)
+    .execute(&mut *transaction)
+    .await?;
+
+    if sample_data.unwrap_or(false) {
+        crate::sample_data::seed(&mut transaction, &key).await?;
+    }
+
+    transaction.commit().await?;
 
     *state.key.lock().map_err(|_| AppError::Locked)? = Some(key);
     Ok(())

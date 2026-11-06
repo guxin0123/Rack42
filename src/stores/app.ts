@@ -103,8 +103,8 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  async function setup(password: string): Promise<void> {
-    await api.setupMasterPassword(password)
+  async function setup(password: string, sampleData = false): Promise<void> {
+    await api.setupMasterPassword(password, sampleData)
     initialized.value = true
     unlocked.value = true
     await refresh()

@@ -42,8 +42,8 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 
 export const api = {
   bootstrap: () => call<BootstrapState>('get_bootstrap_state'),
-  setupMasterPassword: (password: string) =>
-    call<void>('setup_master_password', { password }),
+  setupMasterPassword: (password: string, sampleData = false) =>
+    call<void>('setup_master_password', { password, sampleData }),
   unlock: (password: string) => call<void>('unlock', { password }),
   lock: () => call<void>('lock'),
 

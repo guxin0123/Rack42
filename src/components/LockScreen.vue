@@ -8,6 +8,7 @@ const store = useAppStore()
 
 const password = ref('')
 const confirm = ref('')
+const sampleData = ref(false)
 const busy = ref(false)
 const error = ref('')
 
@@ -39,7 +40,7 @@ async function submit(): Promise<void> {
   busy.value = true
   try {
     if (isSetup.value) {
-      await store.setup(password.value)
+      await store.setup(password.value, sampleData.value)
     } else {
       await store.unlock(password.value)
     }
@@ -115,6 +116,24 @@ async function submit(): Promise<void> {
               placeholder="再次输入主密码"
               :disabled="busy"
             />
+          </label>
+
+          <label
+            v-if="isSetup"
+            class="flex items-start gap-3 rounded-lg border border-white/10 bg-slate-950/40 px-3 py-2.5"
+          >
+            <input
+              v-model="sampleData"
+              type="checkbox"
+              class="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-500"
+              :disabled="busy"
+            />
+            <span>
+              <span class="block text-xs font-medium text-slate-300">生成示例数据</span>
+              <span class="mt-0.5 block text-[10px] leading-4 text-slate-500">
+                包含 3 个机柜、15 台设备与虚拟机、连接关系及示例凭据，方便快速体验；可随时删除。
+              </span>
+            </span>
           </label>
 
           <p

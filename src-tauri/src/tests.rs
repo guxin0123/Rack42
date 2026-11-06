@@ -13,6 +13,7 @@ use crate::models::rack::RackInput;
 use crate::repository::{
     credential_types, credentials, devices, ips, layout, links, os_families, racks,
 };
+use crate::sample_data;
 use crate::ssh;
 
 async fn test_pool_without_migrations() -> SqlitePool {
@@ -887,6 +888,65 @@ async fn os_families_are_configurable_and_migrate_devices() {
         .expect("delete custom os family");
     let reloaded = devices::get(&pool, device.id).await.expect("reload device");
     assert_eq!(reloaded.os_family.as_deref(), Some("other"));
+}
+
+#[tokio::test]
+async fn sample_data_creates_demo_environment() {
+    let pool = test_pool().await;
+    let key = [7u8; 32];
+
+    let mut transaction = pool.begin().await.expect("begin transaction");
+    sample_data::seed(&mut transaction, &key)
+        .await
+        .expect("seed sample data");
+    transaction.commit().await.expect("commit sample data");
+
+    let racks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM racks")
+        .fetch_one(&pool)
+        .await
+        .expect("count racks");
+    let devices: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM devices")
+        .fetch_one(&pool)
+        .await
+        .expect("count devices");
+    let links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM links")
+        .fetch_one(&pool)
+        .await
+        .expect("count links");
+    let credentials: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM credentials")
+        .fetch_one(&pool)
+        .await
+        .expect("count credentials");
+
+    assert_eq!(racks, 3);
+    assert_eq!(devices, 15);
+    assert_eq!(links, 9);
+    assert_eq!(credentials, 12);
+
+    let hosted_vms: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM devices WHERE kind = 'vm' AND host_id IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("count hosted vms");
+    assert_eq!(hosted_vms, 6);
+
+    let encrypted: String =
+        sqlx::query_scalar("SELECT password FROM credentials WHERE label = '域管理员'")
+            .fetch_one(&pool)
+            .await
+            .expect("sample credential");
+    assert_eq!(
+        crypto::decrypt(&key, &encrypted).expect("decrypt sample"),
+        "Demo#2026!"
+    );
+
+    let missing: Option<String> =
+        sqlx::query_scalar("SELECT password FROM credentials WHERE label = 'GitLab 管理'")
+            .fetch_one(&pool)
+            .await
+            .expect("credential without password");
+    assert!(missing.is_none());
 }
 
 #[tokio::test]

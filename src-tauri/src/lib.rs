@@ -7,6 +7,7 @@ mod error;
 mod models;
 mod probe;
 mod repository;
+mod sample_data;
 mod ssh;
 mod state;
 
