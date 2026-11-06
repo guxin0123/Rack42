@@ -250,7 +250,7 @@ npm run dev
 npm run tauri:build
 ```
 
-脚本会执行 `tauri build --no-bundle`，再把可执行文件、README、LICENSE 和一份使用说明打包为：
+脚本会执行 `tauri build --no-bundle`，再把可执行文件、LICENSE 和一份使用说明打包为：
 
 ```
 release/Rack42-<version>-windows-x64.zip
@@ -507,7 +507,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | 项目 | 说明 |
 |---|---|
 | 应用标识 | `com.guxin0123.rack42`（在 `tauri.conf.json` 中修改） |
-| 分发形式 | 便携 zip：`release/Rack42-<version>-windows-x64.zip`（exe + README + LICENSE + 使用说明），不含安装程序 |
+| 分发形式 | 便携 zip：`release/Rack42-<version>-windows-x64.zip`（exe + LICENSE + 使用说明），不含 README、素材与安装程序 |
 | 签名 | 如需发布到公网，可对 exe 做代码签名以减少 SmartScreen 警告 |
 | 更新 | 可选启用 `tauri-plugin-updater`，指向内网或自建静态更新源 |
 

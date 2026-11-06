@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Rack42",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "identifier": "com.guxin0123.rack42",
   "build": {
     "beforeDevCommand": "npm run dev",

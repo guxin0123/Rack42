@@ -182,7 +182,7 @@ async function lockNow(): Promise<void> {
           锁定
         </button>
         <p class="text-center text-[10px] tracking-wide text-slate-700">
-          Rack42 v1.0.0
+          Rack42 v1.1.0
         </p>
       </div>
     </aside>

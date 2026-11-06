@@ -50,11 +50,6 @@ if (Test-Path -LiteralPath $stageDir) {
 New-Item -ItemType Directory -Path $stageDir | Out-Null
 
 Copy-Item -LiteralPath $exePath -Destination (Join-Path $stageDir 'Rack42.exe')
-Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $stageDir
-$assets = Join-Path $root 'assets'
-if (Test-Path -LiteralPath $assets) {
-    Copy-Item -LiteralPath $assets -Destination $stageDir -Recurse
-}
 $license = Join-Path $root 'LICENSE'
 if (Test-Path -LiteralPath $license) {
     Copy-Item -LiteralPath $license -Destination $stageDir
@@ -65,9 +60,10 @@ Rack42 便携版
 
 1. 双击 Rack42.exe 运行；需要 Windows 10 1903+ 和 WebView2 运行时。
 2. 首次启动会询问是否使用便携模式。选择“是”后，数据保存在本目录的 data 文件夹，可随程序一起拷贝。
-3. 本分发包为免安装压缩包，不包含安装程序。
+3. 本分发包为免安装压缩包，仅包含程序、许可和使用说明，不包含安装程序与素材。
 
-更多说明见 README.md。
+项目说明与界面截图：
+https://github.com/guxin0123/Rack42
 "@
 Set-Content -LiteralPath (Join-Path $stageDir '使用说明.txt') -Value $guide -Encoding UTF8
 
