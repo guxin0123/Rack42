@@ -9,9 +9,11 @@
 [![License](https://img.shields.io/badge/License-MIT-green)](#license)
 
 <p align="center">
-  <img src="assets/deepseek-fish.svg" alt="DeepSeek 蓝色大肥鱼" width="96" height="96" />
+  <img src="assets/deepseek-xiao-fei-yu-tai-bang.webp" alt="DeepSeek 娘 Q 版鲸鱼女仆：小肥鱼太棒了！" width="260" />
   <br />
   <a href="https://www.deepseek.com"><img src="assets/deepseek-assisted.svg" alt="由 DeepSeek 辅助开发" height="44" /></a>
+  <br />
+  <sub>角色形象：上善无形（原作）· ZipZipPipe（女仆二次设计）· 图片来自 <a href="https://github.com/EDMOK/blue-fish-archive">EDMOK/blue-fish-archive</a> · <a href="assets/deepseek-xiao-fei-yu-tai-bang.LICENSE.txt">CC BY-NC-SA 4.0</a> · 非官方同人</sub>
 </p>
 
 ---
@@ -539,12 +541,14 @@ A：无法解密已加密的凭据。当前版本没有恢复码机制，只能�
 ## 致谢
 
 - 本项目的代码与文档由 [DeepSeek](https://www.deepseek.com) 辅助开发。
-- README 中的「蓝色大肥鱼」图标为项目自制素材（`assets/deepseek-fish.svg`）。
+- 角色形象「小肥鱼太棒了！」：原作 **上善无形**，女仆二次设计 **ZipZipPipe**，图片来自 [EDMOK/blue-fish-archive](https://github.com/EDMOK/blue-fish-archive)；按仓库说明依 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 使用，非 DeepSeek 官方形象。
 
 ---
 
 ## License
 
 本项目采用 [MIT License](LICENSE) 开源，Copyright © 2026 guxin0123。
+
+> 角色图片「小肥鱼太棒了！」为 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 同人素材，**不适用**上述 MIT 许可；其署名与许可见 [assets/deepseek-xiao-fei-yu-tai-bang.LICENSE.txt](assets/deepseek-xiao-fei-yu-tai-bang.LICENSE.txt)。
 
 > **免责声明**：本工具用于记录与管理自有基础设施信息。请确保凭据的使用符合所在组织的安全策略，并定期备份数据库；忘记主密码将无法解密凭据。
