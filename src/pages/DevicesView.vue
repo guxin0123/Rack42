@@ -16,7 +16,7 @@ import CredentialChooserModal from '@/components/device/CredentialChooserModal.v
 import DeviceContextMenu from '@/components/device/DeviceContextMenu.vue'
 import DeviceFormModal from '@/components/device/DeviceFormModal.vue'
 import { actionLabels, useDeviceConnect } from '@/composables/useDeviceConnect'
-import { iconComponent, isCustomIcon } from '@/lib/icons'
+import { connectionActionIcon, iconComponent, isCustomIcon } from '@/lib/icons'
 import { api } from '@/lib/ipc'
 import { osFamilyInfo } from '@/lib/os'
 import {
@@ -664,6 +664,12 @@ async function removeDevice(device: Device): Promise<void> {
                     <Loader2
                       v-if="isConnecting(row.device.id, type.typeId, action)"
                       class="h-3.5 w-3.5 animate-spin"
+                    />
+                    <!-- Multi-action types (SSH + SFTP) need distinct glyphs. -->
+                    <component
+                      v-else-if="type.actions.length > 1"
+                      :is="connectionActionIcon(action)"
+                      class="h-3.5 w-3.5"
                     />
                     <img
                       v-else-if="isCustomIcon(type.icon)"

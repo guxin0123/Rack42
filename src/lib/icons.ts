@@ -4,6 +4,7 @@ import {
   Cloud,
   Cpu,
   Database,
+  FolderUp,
   Globe,
   HardDrive,
   KeyRound,
@@ -39,4 +40,16 @@ export function iconComponent(icon: string | null | undefined): Component {
 
 export function isCustomIcon(icon: string | null | undefined): boolean {
   return typeof icon === 'string' && icon.startsWith('data:image/')
+}
+
+/**
+ * Fallback icon for a connection action. Used when a credential type exposes
+ * several actions (for example SSH + SFTP) so the buttons stay distinguishable.
+ */
+export function connectionActionIcon(action: string): Component {
+  if (action === 'rdp') return Monitor
+  if (action === 'web') return Globe
+  if (action === 'ssh') return Terminal
+  if (action === 'sftp') return FolderUp
+  return KeyRound
 }
