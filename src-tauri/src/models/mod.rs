@@ -1,6 +1,7 @@
 pub mod credential;
 pub mod credential_type;
 pub mod device;
+pub mod ip;
 pub mod layout;
 pub mod link;
 pub mod rack;

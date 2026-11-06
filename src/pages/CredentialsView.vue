@@ -172,9 +172,15 @@ async function submit(): Promise<void> {
       await api.createCredential(input)
       store.notify('凭据已保存')
     }
-    await loadCredentials(selectedDeviceId.value)
-    await store.refresh()
+    // Close the dialog before the global refresh so a slow refresh never
+    // makes the save action look stuck.
     modalOpen.value = false
+    await loadCredentials(selectedDeviceId.value)
+    void store
+      .refresh()
+      .catch((caught) =>
+        store.notify(caught instanceof Error ? caught.message : '刷新数据失败'),
+      )
   } catch (caught) {
     formError.value = caught instanceof Error ? caught.message : '保存失败'
   } finally {

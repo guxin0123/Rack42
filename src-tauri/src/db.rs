@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
 use tauri::Manager;
 
@@ -75,7 +75,10 @@ async fn try_init(data_dir: &Path) -> Result<SqlitePool, Box<dyn std::error::Err
         .filename(&db_path)
         .create_if_missing(true)
         .foreign_keys(true)
-        .journal_mode(SqliteJournalMode::Wal);
+        .journal_mode(SqliteJournalMode::Wal)
+        // WAL + NORMAL keeps crash safety while avoiding an fsync on every
+        // commit, which can stall for seconds behind antivirus/indexers.
+        .synchronous(SqliteSynchronous::Normal);
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)

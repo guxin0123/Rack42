@@ -26,6 +26,8 @@ const props = defineProps<{
   device?: Device | null
   defaultRackId?: number | null
   defaultPosition?: number | null
+  defaultKind?: DeviceKind
+  defaultHostId?: number | null
   initialTab?: 'basic' | 'credentials'
 }>()
 
@@ -133,7 +135,7 @@ watch(
     editingDraft.value = null
     const device = props.device
     form.name = device?.name ?? ''
-    form.kind = device?.kind ?? 'physical_server'
+    form.kind = device?.kind ?? props.defaultKind ?? 'physical_server'
     form.status = device?.status ?? 'active'
     form.rackId = device?.rackId
       ? String(device.rackId)
@@ -152,7 +154,11 @@ watch(
     form.serial = device?.serial ?? ''
     form.osFamily = device?.osFamily ?? osFamilyOf(device?.os)
     form.os = device?.os ?? ''
-    form.hostId = device?.hostId ? String(device.hostId) : ''
+    form.hostId = device?.hostId
+      ? String(device.hostId)
+      : props.defaultHostId
+        ? String(props.defaultHostId)
+        : ''
     form.note = device?.note ?? ''
     activeTab.value =
       device && props.initialTab === 'credentials' ? 'credentials' : 'basic'
@@ -170,7 +176,14 @@ const primaryIp = computed(() => props.device?.ips[0] ?? '')
 watch(
   () => form.kind,
   (kind) => {
-    if (kind !== 'vm') form.hostId = ''
+    if (kind !== 'vm') {
+      form.hostId = ''
+      return
+    }
+    // Virtual machines live inside their host, never in a rack.
+    form.rackId = ''
+    form.rackPosition = ''
+    form.rackHeight = '1'
   },
 )
 
@@ -311,13 +324,14 @@ async function submit(): Promise<void> {
   error.value = ''
   try {
     const ips = form.ips.map((ip) => ip.trim()).filter(Boolean)
+    const isVm = form.kind === 'vm'
     const payload = {
       name: form.name.trim(),
       kind: form.kind,
       status: form.status,
-      rackId: form.rackId ? Number(form.rackId) : null,
-      rackPosition: form.rackPosition ? Number(form.rackPosition) : null,
-      rackHeight: Number(form.rackHeight) || 1,
+      rackId: !isVm && form.rackId ? Number(form.rackId) : null,
+      rackPosition: !isVm && form.rackPosition ? Number(form.rackPosition) : null,
+      rackHeight: isVm ? 1 : Number(form.rackHeight) || 1,
       ips,
       vendor: form.vendor.trim() || null,
       model: form.model.trim() || null,
@@ -447,7 +461,7 @@ async function submit(): Promise<void> {
         </div>
       </div>
 
-      <div class="grid grid-cols-3 gap-4">
+      <div v-if="form.kind !== 'vm'" class="grid grid-cols-3 gap-4">
         <div>
           <label class="label" for="device-rack">所属机柜</label>
           <select id="device-rack" v-model="form.rackId" class="input">
@@ -529,15 +543,15 @@ async function submit(): Promise<void> {
       </div>
 
       <div class="grid grid-cols-2 gap-4">
-        <div>
+        <div v-if="form.kind !== 'vm'">
           <label class="label" for="device-vendor">厂商</label>
           <input id="device-vendor" v-model="form.vendor" class="input" />
         </div>
-        <div>
+        <div v-if="form.kind !== 'vm'">
           <label class="label" for="device-model">型号</label>
           <input id="device-model" v-model="form.model" class="input" />
         </div>
-        <div>
+        <div v-if="form.kind !== 'vm'">
           <label class="label" for="device-serial">序列号</label>
           <input id="device-serial" v-model="form.serial" class="input" />
         </div>

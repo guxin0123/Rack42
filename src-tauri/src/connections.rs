@@ -362,178 +362,73 @@ fn truncate(value: &str, limit: usize) -> String {
 }
 
 #[cfg(windows)]
+mod windows_shell {
+    use std::ffi::c_void;
+
+    type Hmodule = *mut c_void;
+    type ShellExecuteWFn = unsafe extern "system" fn(
+        hwnd: *mut c_void,
+        operation: *const u16,
+        file: *const u16,
+        parameters: *const u16,
+        directory: *const u16,
+        show_cmd: i32,
+    ) -> isize;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LoadLibraryW(lib_file_name: *const u16) -> Hmodule;
+        fn GetProcAddress(module: Hmodule, proc_name: *const u8) -> *mut c_void;
+    }
+
+    fn wide(value: &str) -> Vec<u16> {
+        value.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// Opens `url` by resolving `ShellExecuteW` from the system `shell32.dll`.
+    /// This is the only path: no browser detection and no fallbacks.
+    pub fn open_url(url: &str) -> std::io::Result<()> {
+        let module_name = wide("shell32.dll");
+        let module = unsafe { LoadLibraryW(module_name.as_ptr()) };
+        if module.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        let symbol = b"ShellExecuteW\0";
+        let proc = unsafe { GetProcAddress(module, symbol.as_ptr()) };
+        if proc.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        // SAFETY: shell32.dll exports ShellExecuteW with this exact signature.
+        let shell_execute_w: ShellExecuteWFn = unsafe { std::mem::transmute(proc) };
+
+        let operation = wide("open");
+        let file = wide(url);
+
+        let result = unsafe {
+            shell_execute_w(
+                std::ptr::null_mut(),
+                operation.as_ptr(),
+                file.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1, // SW_SHOWNORMAL
+            )
+        };
+
+        // ShellExecuteW returns a value <= 32 on failure.
+        if result <= 32 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
 fn open_url(url: &str) -> AppResult<()> {
-    use windows_sys::Win32::UI::Shell::ShellExecuteW;
-    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-
-    // Prefer the browser executable from the default URL association. Some
-    // Chrome installations register a broken `--single-argument` handler:
-    // ShellExecuteW then reports success without launching anything.
-    if let Some(browser) = default_browser_exe() {
-        if launch_browser(&browser, url) {
-            return Ok(());
-        }
-    }
-
-    // If the association is missing/unusable, fall back to a known browser
-    // before trying the shell again.
-    for browser in known_browser_paths() {
-        if launch_browser(&browser, url) {
-            return Ok(());
-        }
-    }
-
-    let operation: Vec<u16> = "open\0".encode_utf16().collect();
-    let file: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
-
-    let result = unsafe {
-        ShellExecuteW(
-            std::ptr::null_mut(),
-            operation.as_ptr(),
-            file.as_ptr(),
-            std::ptr::null(),
-            std::ptr::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-
-    // ShellExecuteW returns a value <= 32 on failure.
-    if (result as isize) <= 32 {
-        return Err(AppError::Io(std::io::Error::last_os_error()));
-    }
-
-    Ok(())
-}
-
-#[cfg(windows)]
-fn launch_browser(browser: &Path, url: &str) -> bool {
-    let name = browser
-        .file_name()
-        .map(|value| value.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
-
-    let parameters = match name.as_str() {
-        "chrome.exe" | "msedge.exe" | "brave.exe" | "chromium.exe" | "vivaldi.exe" => {
-            format!("--new-window \"{url}\"")
-        }
-        "firefox.exe" => format!("-new-window \"{url}\""),
-        _ => format!("\"{url}\""),
-    };
-
-    if shell_execute_browser(browser, &parameters) {
-        return true;
-    }
-
-    let mut command = Command::new(browser);
-    if parameters.starts_with("--new-window") {
-        command.arg("--new-window");
-    } else if parameters.starts_with("-new-window") {
-        command.arg("-new-window");
-    }
-    command.arg(url).spawn().is_ok()
-}
-
-#[cfg(windows)]
-fn shell_execute_browser(browser: &Path, parameters: &str) -> bool {
-    use std::os::windows::ffi::OsStrExt;
-
-    use windows_sys::Win32::UI::Shell::ShellExecuteW;
-    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-
-    let operation: Vec<u16> = "open\0".encode_utf16().collect();
-    let file: Vec<u16> = browser
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let params: Vec<u16> = parameters
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect();
-
-    let result = unsafe {
-        ShellExecuteW(
-            std::ptr::null_mut(),
-            operation.as_ptr(),
-            file.as_ptr(),
-            params.as_ptr(),
-            std::ptr::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-
-    (result as isize) > 32
-}
-
-#[cfg(windows)]
-fn default_browser_exe() -> Option<PathBuf> {
-    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
-    use winreg::RegKey;
-
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-
-    let user_choice = hkcu
-        .open_subkey_with_flags(
-            r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
-            KEY_READ,
-        )
-        .ok()?;
-    let prog_id: String = user_choice.get_value("ProgId").ok()?;
-    if prog_id.is_empty() {
-        return None;
-    }
-
-    let command_path = format!(r"Software\Classes\{prog_id}\shell\open\command");
-    let command = [&hkcu, &hklm]
-        .into_iter()
-        .filter_map(|root| {
-            root.open_subkey_with_flags(&command_path, KEY_READ)
-                .ok()
-                .and_then(|key| key.get_value::<String, _>("").ok())
-        })
-        .find(|value| !value.trim().is_empty())?;
-
-    command_executable(&command)
-}
-
-#[cfg(windows)]
-fn command_executable(command: &str) -> Option<PathBuf> {
-    let command = command.trim();
-    let executable = if let Some(rest) = command.strip_prefix('"') {
-        &rest[..rest.find('"')?]
-    } else {
-        command.split_whitespace().next()?
-    };
-
-    let path = PathBuf::from(executable);
-    path.is_file().then_some(path)
-}
-
-#[cfg(windows)]
-fn known_browser_paths() -> Vec<PathBuf> {
-    let program_files = std::env::var_os("ProgramFiles")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
-    let program_files_x86 = std::env::var_os("ProgramFiles(x86)")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files (x86)"));
-    let local_app_data = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_default();
-
-    [
-        program_files_x86.join(r"Microsoft\Edge\Application\msedge.exe"),
-        program_files.join(r"Microsoft\Edge\Application\msedge.exe"),
-        program_files.join(r"Google\Chrome\Application\chrome.exe"),
-        program_files_x86.join(r"Google\Chrome\Application\chrome.exe"),
-        local_app_data.join(r"Google\Chrome\Application\chrome.exe"),
-        program_files.join(r"Mozilla Firefox\firefox.exe"),
-        program_files_x86.join(r"Mozilla Firefox\firefox.exe"),
-    ]
-    .into_iter()
-    .filter(|path| path.is_file())
-    .collect()
+    windows_shell::open_url(url).map_err(AppError::Io)
 }
 
 #[cfg(not(windows))]

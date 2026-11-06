@@ -17,11 +17,12 @@ import { computed, markRaw, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import CredentialChooserModal from '@/components/device/CredentialChooserModal.vue'
+import DeviceContextMenu from '@/components/device/DeviceContextMenu.vue'
 import DeviceFormModal from '@/components/device/DeviceFormModal.vue'
 import DeviceNode from '@/components/topology/DeviceNode.vue'
 import RackNode from '@/components/topology/RackNode.vue'
 import TopologyEdgeMenu from '@/components/topology/TopologyEdgeMenu.vue'
-import TopologyNodeMenu from '@/components/topology/TopologyNodeMenu.vue'
+import TopologyRackMenu from '@/components/topology/TopologyRackMenu.vue'
 import Modal from '@/components/ui/Modal.vue'
 import { useDeviceConnect } from '@/composables/useDeviceConnect'
 import { provideTopologyHighlight } from '@/composables/useTopologyHighlight'
@@ -35,6 +36,7 @@ import type {
   ConnectionTypeSummary,
   CredentialAction,
   Device,
+  DeviceKind,
   LayoutNode,
   Link,
   LinkType,
@@ -152,6 +154,20 @@ provideTopologyHighlight(highlightedDeviceIds)
 const deviceFormOpen = ref(false)
 const deviceFormDevice = ref<Device | null>(null)
 const deviceFormTab = ref<'basic' | 'credentials'>('basic')
+const deviceFormKind = ref<DeviceKind | undefined>(undefined)
+const deviceFormHostId = ref<number | null>(null)
+const deviceFormRackId = ref<number | null>(null)
+
+const rackMenuOpen = ref(false)
+const rackMenuPosition = reactive({ x: 0, y: 0 })
+const rackMenuRack = ref<Rack | null>(null)
+const rackMenuDeviceCount = computed(() => {
+  const rack = rackMenuRack.value
+  if (!rack) return 0
+  return store.devices.filter(
+    (device) => device.rackId === rack.id && parentOf(device) === null,
+  ).length
+})
 
 function nodeId(device: Device): string {
   return String(device.id)
@@ -639,9 +655,15 @@ function closeEdgeMenu(): void {
   edgeMenuLink.value = null
 }
 
+function closeRackMenu(): void {
+  rackMenuOpen.value = false
+  rackMenuRack.value = null
+}
+
 function closeMenus(): void {
   closeMenu()
   closeEdgeMenu()
+  closeRackMenu()
 }
 
 function onEdgeClick({ edge }: EdgeMouseEvent): void {
@@ -671,11 +693,25 @@ function onNodeContextMenu({ event, node }: NodeMouseEvent): void {
   event.preventDefault()
   event.stopPropagation()
 
+  const point = pointerPosition(event)
+  closeMenu()
+  closeEdgeMenu()
+  closeRackMenu()
+
+  if (node.type === 'rack') {
+    const rackId = Number(node.id.replace(/^rack-/, ''))
+    const rack = store.rackById.get(rackId)
+    if (!rack) return
+    rackMenuRack.value = rack
+    rackMenuPosition.x = point.x
+    rackMenuPosition.y = point.y
+    rackMenuOpen.value = true
+    return
+  }
+
   const device = store.deviceById.get(Number(node.id))
   if (!device) return
 
-  closeEdgeMenu()
-  const point = pointerPosition(event)
   menuDevice.value = device
   menuPosition.x = point.x
   menuPosition.y = point.y
@@ -713,8 +749,39 @@ async function deleteEdgeFromMenu(): Promise<void> {
 function openDeviceForm(device: Device, tab: 'basic' | 'credentials'): void {
   closeMenu()
   deviceFormDevice.value = device
+  deviceFormKind.value = undefined
+  deviceFormHostId.value = null
+  deviceFormRackId.value = null
   deviceFormTab.value = tab
   deviceFormOpen.value = true
+}
+
+function openCreateDevice(options: {
+  kind?: DeviceKind
+  hostId?: number | null
+  rackId?: number | null
+}): void {
+  closeMenus()
+  deviceFormDevice.value = null
+  deviceFormKind.value = options.kind
+  deviceFormHostId.value = options.hostId ?? null
+  deviceFormRackId.value = options.rackId ?? null
+  deviceFormTab.value = 'basic'
+  deviceFormOpen.value = true
+}
+
+function addVmFromMenu(): void {
+  const host = menuDevice.value
+  closeMenu()
+  if (!host || host.kind !== 'physical_server') return
+  openCreateDevice({ kind: 'vm', hostId: host.id })
+}
+
+function addDeviceToRack(): void {
+  const rack = rackMenuRack.value
+  closeRackMenu()
+  if (!rack) return
+  openCreateDevice({ kind: 'physical_server', rackId: rack.id })
 }
 
 function addLinkFromMenu(): void {
@@ -877,7 +944,7 @@ async function removeDeviceFromMenu(): Promise<void> {
       </button>
     </div>
 
-    <TopologyNodeMenu
+    <DeviceContextMenu
       :open="menuOpen"
       :x="menuPosition.x"
       :y="menuPosition.y"
@@ -887,9 +954,20 @@ async function removeDeviceFromMenu(): Promise<void> {
       @close="closeMenu"
       @connect="connectFromMenu"
       @add-link="addLinkFromMenu"
+      @add-vm="addVmFromMenu"
       @credentials="manageMenuCredentials"
       @edit="editMenuDevice"
       @remove="removeDeviceFromMenu"
+    />
+
+    <TopologyRackMenu
+      :open="rackMenuOpen"
+      :x="rackMenuPosition.x"
+      :y="rackMenuPosition.y"
+      :rack="rackMenuRack"
+      :device-count="rackMenuDeviceCount"
+      @close="closeRackMenu"
+      @add-device="addDeviceToRack"
     />
 
     <TopologyEdgeMenu
@@ -906,6 +984,9 @@ async function removeDeviceFromMenu(): Promise<void> {
     <DeviceFormModal
       :open="deviceFormOpen"
       :device="deviceFormDevice"
+      :default-kind="deviceFormKind"
+      :default-host-id="deviceFormHostId"
+      :default-rack-id="deviceFormRackId"
       :initial-tab="deviceFormTab"
       @close="deviceFormOpen = false"
       @saved="deviceFormOpen = false"

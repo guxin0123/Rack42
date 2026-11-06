@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   ChevronRight,
+  Globe,
   HardDrive,
   KeyRound,
   LayoutDashboard,
@@ -42,6 +43,7 @@ const nav = [
   { to: '/racks', label: '机柜', icon: Server },
   { to: '/devices', label: '设备', icon: HardDrive },
   { to: '/topology', label: '拓扑', icon: Network },
+  { to: '/ips', label: 'IP 总览', icon: Globe },
   { to: '/credentials', label: '凭据', icon: KeyRound },
   { to: '/audit', label: '审计', icon: ScrollText },
   { to: '/settings', label: '设置', icon: Settings },

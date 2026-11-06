@@ -26,7 +26,6 @@ defineEmits<{ close: [] }>()
       <div
         v-if="open"
         class="modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
-        @click.self="$emit('close')"
       >
         <div
           class="flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-2xl"

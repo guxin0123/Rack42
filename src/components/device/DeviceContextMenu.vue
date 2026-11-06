@@ -1,17 +1,12 @@
 <script setup lang="ts">
-import {
-  FolderUp,
-  Globe,
-  KeyRound,
-  Link2,
-  Monitor,
-  Pencil,
-  Terminal,
-  Trash2,
-} from 'lucide-vue-next'
+import { KeyRound, Link2, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 import { actionLabels } from '@/composables/useDeviceConnect'
+import {
+  credentialIconComponent,
+  isCustomCredentialIcon,
+} from '@/lib/credentialIcons'
 import {
   deviceKindLabel,
   deviceStatusLabel,
@@ -22,14 +17,19 @@ import type {
   Device,
 } from '@/lib/types'
 
-const props = defineProps<{
-  open: boolean
-  x: number
-  y: number
-  device: Device | null
-  types: ConnectionTypeSummary[]
-  busy: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    x: number
+    y: number
+    device: Device | null
+    types: ConnectionTypeSummary[]
+    busy: boolean
+    /** Topology only: offer "add link from this device". */
+    showAddLink?: boolean
+  }>(),
+  { showAddLink: true },
+)
 
 const emit = defineEmits<{
   close: []
@@ -37,18 +37,30 @@ const emit = defineEmits<{
   edit: []
   credentials: []
   addLink: []
+  addVm: []
   remove: []
 }>()
 
-const MENU_WIDTH = 252
+const MENU_WIDTH = 258
 const menuRef = ref<HTMLElement | null>(null)
 
 const actionCount = computed(() =>
   props.types.reduce((total, type) => total + type.actions.length, 0),
 )
 
+const footerCount = computed(() => {
+  let count = 3 // credentials + edit + delete
+  if (props.showAddLink) count += 1
+  if (props.device?.kind === 'physical_server') count += 1
+  return count
+})
+
 const estimatedHeight = computed(
-  () => 62 + (actionCount.value ? actionCount.value * 34 + 26 : 40) + 4 * 34 + 18,
+  () =>
+    62 +
+    (actionCount.value ? actionCount.value * 34 + 26 : 40) +
+    footerCount.value * 34 +
+    18,
 )
 
 const menuStyle = computed(() => {
@@ -69,13 +81,6 @@ const menuStyle = computed(() => {
     maxHeight: `calc(100vh - ${top + margin}px)`,
   }
 })
-
-function actionIcon(action: CredentialAction) {
-  if (action === 'rdp') return Monitor
-  if (action === 'web') return Globe
-  if (action === 'ssh') return Terminal
-  return FolderUp
-}
 
 function close(): void {
   if (props.open) emit('close')
@@ -154,7 +159,17 @@ onBeforeUnmount(removeListeners)
             :disabled="busy"
             @click="emit('connect', type, action)"
           >
-            <component :is="actionIcon(action)" class="h-3.5 w-3.5 shrink-0" />
+            <img
+              v-if="isCustomCredentialIcon(type.icon)"
+              :src="type.icon"
+              alt=""
+              class="h-3.5 w-3.5 shrink-0 rounded object-cover"
+            />
+            <component
+              :is="credentialIconComponent(type.icon)"
+              v-else
+              class="h-3.5 w-3.5 shrink-0"
+            />
             <span class="truncate">{{ type.name }} · {{ actionLabels[action] ?? action }}</span>
             <span
               v-if="type.credentialCount > 1"
@@ -172,6 +187,17 @@ onBeforeUnmount(removeListeners)
       <div class="my-1 border-t border-white/5" />
 
       <button
+        v-if="device.kind === 'physical_server'"
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11px] text-slate-300 transition hover:bg-white/5 hover:text-slate-100"
+        @click="emit('addVm')"
+      >
+        <Plus class="h-3.5 w-3.5 shrink-0 text-slate-500" />
+        添加虚拟机
+      </button>
+      <button
+        v-if="showAddLink"
         type="button"
         role="menuitem"
         class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11px] text-slate-300 transition hover:bg-white/5 hover:text-slate-100"

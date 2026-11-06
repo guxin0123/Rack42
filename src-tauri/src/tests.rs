@@ -9,7 +9,7 @@ use crate::models::device::DeviceInput;
 use crate::models::layout::{LayoutNode, RackLayoutNode};
 use crate::models::link::LinkInput;
 use crate::models::rack::RackInput;
-use crate::repository::{credential_types, credentials, devices, layout, links, racks};
+use crate::repository::{credential_types, credentials, devices, ips, layout, links, racks};
 use crate::ssh;
 
 async fn test_pool_without_migrations() -> SqlitePool {
@@ -790,6 +790,51 @@ async fn mac_column_was_removed() {
             .await
             .expect("inspect devices columns");
     assert_eq!(columns, 0);
+}
+
+#[tokio::test]
+async fn ip_overview_groups_devices_and_credential_addresses() {
+    let pool = test_pool().await;
+
+    let mut input = device_input("ip-host", None, None, 1);
+    input.ips = vec!["10.1.2.3".to_string(), "fe80::1".to_string()];
+    let device = devices::create(&pool, &input).await.expect("create device");
+
+    let credential_input = |address: &str| CredentialInput {
+        device_id: device.id,
+        type_id: None,
+        label: Some(address.to_string()),
+        address: Some(address.to_string()),
+        port: None,
+        username: None,
+        domain: None,
+        password: None,
+        note: None,
+        is_default: false,
+    };
+
+    for address in [
+        "10.1.2.99",
+        "https://10.1.2.50:8443/admin",
+        "host.example.com",
+    ] {
+        credentials::create(&pool, &credential_input(address), None)
+            .await
+            .expect("create credential");
+    }
+
+    let rows = ips::list(&pool).await.expect("list ip overview");
+    let has = |ip: &str, source: &str| rows.iter().any(|row| row.ip == ip && row.source == source);
+
+    assert!(has("10.1.2.3", "device"));
+    assert!(has("fe80::1", "device"));
+    assert!(has("10.1.2.99", "credential"));
+    assert!(has("10.1.2.50", "credential"));
+    assert!(!rows.iter().any(|row| row.ip == "host.example.com"));
+    assert!(rows
+        .iter()
+        .filter(|row| row.ip.starts_with("10.1.2."))
+        .all(|row| row.subnet == "10.1.2.0/24"));
 }
 
 #[tokio::test]

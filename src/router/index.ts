@@ -4,6 +4,7 @@ import AuditView from '@/pages/AuditView.vue'
 import CredentialsView from '@/pages/CredentialsView.vue'
 import DashboardView from '@/pages/DashboardView.vue'
 import DevicesView from '@/pages/DevicesView.vue'
+import IpOverviewView from '@/pages/IpOverviewView.vue'
 import RackDetailView from '@/pages/RackDetailView.vue'
 import RacksView from '@/pages/RacksView.vue'
 import SettingsView from '@/pages/SettingsView.vue'
@@ -41,6 +42,12 @@ const router = createRouter({
       name: 'topology',
       component: TopologyView,
       meta: { title: '拓扑' },
+    },
+    {
+      path: '/ips',
+      name: 'ip-overview',
+      component: IpOverviewView,
+      meta: { title: 'IP 总览' },
     },
     {
       path: '/credentials',

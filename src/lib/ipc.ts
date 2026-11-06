@@ -13,6 +13,7 @@ import type {
   Device,
   DeviceConnectionSummary,
   DeviceInput,
+  IpOverviewEntry,
   LayoutNode,
   Link,
   LinkInput,
@@ -90,6 +91,7 @@ export const api = {
   revealCredential: (id: number) => call<string>('reveal_credential', { id }),
 
   stats: () => call<Stats>('get_stats'),
+  listIpOverview: () => call<IpOverviewEntry[]>('list_ip_overview'),
   exportData: () => call<string>('export_data'),
 
   loadLayout: (view: string) => call<LayoutNode[]>('load_layout', { view }),

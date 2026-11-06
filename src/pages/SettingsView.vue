@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import {
-  Cloud,
   Copy,
   Database,
   Download,
   FolderOpen,
   FolderUp,
   Github,
-  Globe,
-  HardDrive,
   KeyRound,
   Lock,
   Monitor,
@@ -17,8 +14,6 @@ import {
   Pencil,
   Plus,
   Save,
-  Server,
-  Shield,
   ShieldCheck,
   Sun,
   Terminal,
@@ -27,6 +22,11 @@ import {
 import { onMounted, reactive, ref } from 'vue'
 
 import Modal from '@/components/ui/Modal.vue'
+import {
+  credentialIconComponent,
+  credentialIconOptions,
+  isCustomCredentialIcon,
+} from '@/lib/credentialIcons'
 import { api } from '@/lib/ipc'
 import type {
   CredentialAction,
@@ -171,24 +171,14 @@ const actionOptions: Array<{ value: CredentialAction; label: string }> = [
   { value: 'web', label: 'Web' },
 ]
 
-const iconOptions = [
-  { value: 'monitor', label: '显示器', icon: Monitor },
-  { value: 'terminal', label: '终端', icon: Terminal },
-  { value: 'server', label: '服务器', icon: Server },
-  { value: 'cloud', label: '云', icon: Cloud },
-  { value: 'globe', label: 'Web', icon: Globe },
-  { value: 'key', label: '密钥', icon: KeyRound },
-  { value: 'database', label: '数据库', icon: Database },
-  { value: 'hard-drive', label: '存储', icon: HardDrive },
-  { value: 'shield', label: '安全', icon: Shield },
-]
+const iconOptions = credentialIconOptions
 
 function typeIcon(icon: string) {
-  return iconOptions.find((option) => option.value === icon)?.icon ?? KeyRound
+  return credentialIconComponent(icon)
 }
 
 function isCustomIcon(icon: string): boolean {
-  return icon.startsWith('data:image/')
+  return isCustomCredentialIcon(icon)
 }
 
 function onIconFile(event: Event): void {

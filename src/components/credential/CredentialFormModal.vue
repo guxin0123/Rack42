@@ -123,9 +123,14 @@ async function submit(): Promise<void> {
       await api.createCredential(input)
       store.notify('凭据已添加')
     }
-    await store.refresh()
+    // Do not keep the dialog busy while the whole store refreshes.
     emit('saved')
     emit('close')
+    void store
+      .refresh()
+      .catch((caught) =>
+        store.notify(caught instanceof Error ? caught.message : '刷新数据失败'),
+      )
   } catch (caught) {
     formError.value = caught instanceof Error ? caught.message : '保存失败'
   } finally {

@@ -31,11 +31,9 @@ zeroize = "1"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = [
     "Win32_UI_WindowsAndMessaging",
-    "Win32_UI_Shell",
     "Win32_Security_Cryptography",
     "Win32_Foundation",
 ] }
-winreg = "0.55"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

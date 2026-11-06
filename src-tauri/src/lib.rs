@@ -191,6 +191,7 @@ pub fn run() {
             commands::layout::save_rack_layout,
             commands::data::get_stats,
             commands::data::export_data,
+            commands::ip::list_ip_overview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Rack42");

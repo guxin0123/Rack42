@@ -6,12 +6,38 @@ use crate::models::credential::{Credential, CredentialInput, PasswordUpdate};
 use crate::repository::credentials;
 use crate::state::AppState;
 
+/// Writes slow credential operations to `<data_dir>/rack42-perf.log` so an
+/// intermittent save stall can be traced without a debugger attached.
+fn log_slow(state: &AppState, operation: &str, elapsed: std::time::Duration) {
+    if elapsed < std::time::Duration::from_millis(500) {
+        return;
+    }
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or_default();
+    let line = format!("{stamp} {operation} {elapsed:?}\n");
+
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(state.data_dir.join("rack42-perf.log"))
+    {
+        use std::io::Write;
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
 #[tauri::command]
 pub async fn list_credentials(
     state: State<'_, AppState>,
     device_id: i64,
 ) -> AppResult<Vec<Credential>> {
-    credentials::list_by_device(&state.db, device_id).await
+    let started = std::time::Instant::now();
+    let result = credentials::list_by_device(&state.db, device_id).await;
+    log_slow(&state, "list_credentials", started.elapsed());
+    result
 }
 
 #[tauri::command]
@@ -26,7 +52,10 @@ pub async fn create_credential(
         None => None,
     };
 
-    credentials::create(&state.db, &input, cipher.as_deref()).await
+    let started = std::time::Instant::now();
+    let result = credentials::create(&state.db, &input, cipher.as_deref()).await;
+    log_slow(&state, "create_credential", started.elapsed());
+    result
 }
 
 #[tauri::command]
@@ -44,7 +73,10 @@ pub async fn update_credential(
         }
     };
 
-    credentials::update(&state.db, id, &input, &update).await
+    let started = std::time::Instant::now();
+    let result = credentials::update(&state.db, id, &input, &update).await;
+    log_slow(&state, "update_credential", started.elapsed());
+    result
 }
 
 #[tauri::command]

@@ -2,29 +2,30 @@
 import {
   ChevronDown,
   ChevronRight,
-  FolderUp,
-  Globe,
   Loader2,
-  Monitor,
   Pencil,
   Plus,
   Search,
-  Terminal,
   Trash2,
 } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import CredentialChooserModal from '@/components/device/CredentialChooserModal.vue'
+import DeviceContextMenu from '@/components/device/DeviceContextMenu.vue'
 import DeviceFormModal from '@/components/device/DeviceFormModal.vue'
 import { actionLabels, useDeviceConnect } from '@/composables/useDeviceConnect'
+import {
+  credentialIconComponent,
+  isCustomCredentialIcon,
+} from '@/lib/credentialIcons'
 import {
   deviceKindLabel,
   deviceKindMeta,
   deviceStatusLabel,
   deviceStatusMeta,
 } from '@/lib/format'
-import type { Device, DeviceKind } from '@/lib/types'
+import type { ConnectionTypeSummary, CredentialAction, Device, DeviceKind } from '@/lib/types'
 import { useAppStore } from '@/stores/app'
 
 const store = useAppStore()
@@ -32,6 +33,7 @@ const route = useRoute()
 const {
   chooserOpen,
   chooser,
+  connectingKey,
   connectionTypes,
   isConnecting,
   connect,
@@ -45,6 +47,16 @@ const kindFilter = ref<'all' | DeviceKind>('all')
 const rackFilter = ref<'all' | 'unassigned' | number>('all')
 const formOpen = ref(false)
 const editing = ref<Device | null>(null)
+const formTab = ref<'basic' | 'credentials'>('basic')
+const formKind = ref<DeviceKind | undefined>(undefined)
+const formHostId = ref<number | null>(null)
+
+const menuOpen = ref(false)
+const menuPosition = reactive({ x: 0, y: 0 })
+const menuDevice = ref<Device | null>(null)
+const menuTypes = computed(() =>
+  menuDevice.value ? connectionTypes(menuDevice.value.id) : [],
+)
 
 function deviceNameOf(deviceId: number): string {
   return store.deviceById.get(deviceId)?.name ?? ''
@@ -183,14 +195,85 @@ function toggleAll(): void {
   )
 }
 
+function resetFormDefaults(): void {
+  formTab.value = 'basic'
+  formKind.value = undefined
+  formHostId.value = null
+}
+
 function createDevice(): void {
   editing.value = null
+  resetFormDefaults()
   formOpen.value = true
 }
 
 function editDevice(device: Device): void {
   editing.value = device
+  resetFormDefaults()
   formOpen.value = true
+}
+
+function openCredentials(device: Device): void {
+  editing.value = device
+  resetFormDefaults()
+  formTab.value = 'credentials'
+  formOpen.value = true
+}
+
+function addVm(device: Device): void {
+  editing.value = null
+  resetFormDefaults()
+  formKind.value = 'vm'
+  formHostId.value = device.id
+  formOpen.value = true
+}
+
+function openRowMenu(event: MouseEvent, device: Device): void {
+  event.preventDefault()
+  event.stopPropagation()
+  menuDevice.value = device
+  menuPosition.x = event.clientX
+  menuPosition.y = event.clientY
+  menuOpen.value = true
+}
+
+function closeMenu(): void {
+  menuOpen.value = false
+  menuDevice.value = null
+}
+
+function connectFromMenu(
+  type: ConnectionTypeSummary,
+  action: CredentialAction,
+): void {
+  const device = menuDevice.value
+  closeMenu()
+  if (!device) return
+  void connect(device.id, type, action)
+}
+
+function editFromMenu(): void {
+  const device = menuDevice.value
+  closeMenu()
+  if (device) editDevice(device)
+}
+
+function credentialsFromMenu(): void {
+  const device = menuDevice.value
+  closeMenu()
+  if (device) openCredentials(device)
+}
+
+function addVmFromMenu(): void {
+  const device = menuDevice.value
+  closeMenu()
+  if (device && device.kind === 'physical_server') addVm(device)
+}
+
+function removeFromMenu(): void {
+  const device = menuDevice.value
+  closeMenu()
+  if (device) void removeDevice(device)
 }
 
 async function removeDevice(device: Device): Promise<void> {
@@ -278,6 +361,7 @@ async function removeDevice(device: Device): Promise<void> {
             :key="row.device.id"
             class="select-none border-b border-white/[0.03] transition last:border-0 hover:bg-white/[0.02]"
             @dblclick="connectFirst(row.device)"
+            @contextmenu="openRowMenu($event, row.device)"
           >
             <td
               class="px-5 py-3"
@@ -384,10 +468,17 @@ async function removeDevice(device: Device): Promise<void> {
                       v-if="isConnecting(row.device.id, type.typeId, action)"
                       class="h-3.5 w-3.5 animate-spin"
                     />
-                    <Monitor v-else-if="action === 'rdp'" class="h-3.5 w-3.5" />
-                    <Globe v-else-if="action === 'web'" class="h-3.5 w-3.5" />
-                    <Terminal v-else-if="action === 'ssh'" class="h-3.5 w-3.5" />
-                    <FolderUp v-else class="h-3.5 w-3.5" />
+                    <img
+                      v-else-if="isCustomCredentialIcon(type.icon)"
+                      :src="type.icon"
+                      alt=""
+                      class="h-3.5 w-3.5 rounded object-cover"
+                    />
+                    <component
+                      :is="credentialIconComponent(type.icon)"
+                      v-else
+                      class="h-3.5 w-3.5"
+                    />
                   </button>
                 </template>
                 <button
@@ -438,8 +529,27 @@ async function removeDevice(device: Device): Promise<void> {
     <DeviceFormModal
       :open="formOpen"
       :device="editing"
+      :default-kind="formKind"
+      :default-host-id="formHostId"
+      :initial-tab="formTab"
       @close="formOpen = false"
       @saved="formOpen = false"
+    />
+
+    <DeviceContextMenu
+      :open="menuOpen"
+      :x="menuPosition.x"
+      :y="menuPosition.y"
+      :device="menuDevice"
+      :types="menuTypes"
+      :busy="Boolean(connectingKey)"
+      :show-add-link="false"
+      @close="closeMenu"
+      @connect="connectFromMenu"
+      @credentials="credentialsFromMenu"
+      @edit="editFromMenu"
+      @add-vm="addVmFromMenu"
+      @remove="removeFromMenu"
     />
 
     <CredentialChooserModal

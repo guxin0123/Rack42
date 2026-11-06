@@ -213,3 +213,13 @@ export interface RackLayoutNode {
   x: number
   y: number
 }
+
+export interface IpOverviewEntry {
+  ip: string
+  subnet: string
+  deviceId: number
+  deviceName: string
+  source: 'device' | 'credential'
+  credentialId: number | null
+  credentialLabel: string | null
+}
