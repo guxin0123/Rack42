@@ -8,6 +8,12 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4?logo=windows)](#环境要求)
 [![License](https://img.shields.io/badge/License-MIT-green)](#license)
 
+<p align="center">
+  <img src="assets/deepseek-fish.svg" alt="DeepSeek 蓝色大肥鱼" width="96" height="96" />
+  <br />
+  <a href="https://www.deepseek.com"><img src="assets/deepseek-assisted.svg" alt="由 DeepSeek 辅助开发" height="44" /></a>
+</p>
+
 ---
 
 ## 简介
@@ -527,6 +533,13 @@ A：无法解密已加密的凭据。当前版本没有恢复码机制，只能�
 - `cargo fmt && cargo clippy -- -D warnings` 通过；
 - `cargo test` 通过；
 - 涉及数据库变更时附带迁移脚本与说明。
+
+---
+
+## 致谢
+
+- 本项目的代码与文档由 [DeepSeek](https://www.deepseek.com) 辅助开发。
+- README 中的「蓝色大肥鱼」图标为项目自制素材（`assets/deepseek-fish.svg`）。
 
 ---
 

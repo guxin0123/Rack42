@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-labelledby="deepseek-fish-title deepseek-fish-desc">
+  <title id="deepseek-fish-title">蓝色大肥鱼</title>
+  <desc id="deepseek-fish-desc">DeepSeek 辅助开发标志：一条圆润的蓝色小鱼</desc>
+  <defs>
+    <linearGradient id="fish-body" x1="30" y1="24" x2="78" y2="76" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#93c5fd"/>
+      <stop offset="0.45" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1e40af"/>
+    </linearGradient>
+    <linearGradient id="fish-fin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <radialGradient id="fish-belly" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#dbeafe" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#dbeafe" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- tail -->
+  <path d="M32 48c-7-7-16-13-24-16 5 11 5 21 0 32 8-3 17-9 24-16Z" fill="url(#fish-fin)"/>
+
+  <!-- body -->
+  <ellipse cx="55" cy="48" rx="31" ry="26" fill="url(#fish-body)"/>
+  <ellipse cx="57" cy="58" rx="21" ry="13" fill="url(#fish-belly)"/>
+
+  <!-- dorsal and pectoral fins -->
+  <path d="M43 24c2-8 9-13 16-13-3 5-4 10-3 15-4-2-9-2-13-2Z" fill="url(#fish-fin)"/>
+  <path d="M63 58c-6 7-13 9-19 8 4 5 11 7 17 4 3-2 4-7 2-12Z" fill="#2563eb" opacity="0.85"/>
+
+  <!-- face -->
+  <circle cx="72" cy="41" r="8" fill="#ffffff"/>
+  <circle cx="73" cy="42" r="4.2" fill="#0f172a"/>
+  <circle cx="74.4" cy="40.6" r="1.4" fill="#ffffff"/>
+  <circle cx="63" cy="53" r="4.5" fill="#fda4af" opacity="0.45"/>
+  <path d="M78 54c2.4 1.8 5.2 1.8 7.6 0" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+
+  <!-- bubbles -->
+  <circle cx="84" cy="22" r="4" fill="#bfdbfe" opacity="0.9"/>
+  <circle cx="91" cy="13" r="2.2" fill="#dbeafe" opacity="0.8"/>
+</svg>

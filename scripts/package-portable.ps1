@@ -51,6 +51,10 @@ New-Item -ItemType Directory -Path $stageDir | Out-Null
 
 Copy-Item -LiteralPath $exePath -Destination (Join-Path $stageDir 'Rack42.exe')
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $stageDir
+$assets = Join-Path $root 'assets'
+if (Test-Path -LiteralPath $assets) {
+    Copy-Item -LiteralPath $assets -Destination $stageDir -Recurse
+}
 $license = Join-Path $root 'LICENSE'
 if (Test-Path -LiteralPath $license) {
     Copy-Item -LiteralPath $license -Destination $stageDir
