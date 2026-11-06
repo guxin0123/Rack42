@@ -541,16 +541,16 @@ async function submit(): Promise<void> {
         </p>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
-        <div v-if="form.kind !== 'vm'">
+      <div v-if="form.kind !== 'vm'" class="grid grid-cols-2 gap-4">
+        <div>
           <label class="label" for="device-vendor">厂商</label>
           <input id="device-vendor" v-model="form.vendor" class="input" />
         </div>
-        <div v-if="form.kind !== 'vm'">
+        <div>
           <label class="label" for="device-model">型号</label>
           <input id="device-model" v-model="form.model" class="input" />
         </div>
-        <div v-if="form.kind !== 'vm'">
+        <div>
           <label class="label" for="device-serial">序列号</label>
           <input id="device-serial" v-model="form.serial" class="input" />
         </div>
