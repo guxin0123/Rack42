@@ -41,6 +41,14 @@ pub async fn list_credentials(
 }
 
 #[tauri::command]
+pub async fn list_all_credentials(state: State<'_, AppState>) -> AppResult<Vec<Credential>> {
+    let started = std::time::Instant::now();
+    let result = credentials::list_all(&state.db).await;
+    log_slow(&state, "list_all_credentials", started.elapsed());
+    result
+}
+
+#[tauri::command]
 pub async fn create_credential(
     state: State<'_, AppState>,
     input: CredentialInput,

@@ -183,6 +183,7 @@ pub fn run() {
             commands::credential_type::update_credential_type,
             commands::credential_type::delete_credential_type,
             commands::credential::list_credentials,
+            commands::credential::list_all_credentials,
             commands::credential::create_credential,
             commands::credential::update_credential,
             commands::credential::reveal_credential,

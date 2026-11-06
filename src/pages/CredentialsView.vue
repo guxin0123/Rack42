@@ -17,13 +17,14 @@ import { useAppStore } from '@/stores/app'
 
 const store = useAppStore()
 
-const selectedDeviceId = ref<number | null>(store.devices[0]?.id ?? null)
+const selectedDeviceId = ref<'all' | number>('all')
 const credentials = ref<Credential[]>([])
 const loading = ref(false)
 const revealed = reactive<Record<number, string>>({})
 
 const modalOpen = ref(false)
 const editing = ref<Credential | null>(null)
+const formDeviceId = ref<number | null>(null)
 const busiest = ref(false)
 const formError = ref('')
 
@@ -44,18 +45,21 @@ const selectedType = computed(() =>
   store.credentialTypes.find((type) => String(type.id) === form.typeId),
 )
 
-const devicePrimaryIp = computed(() => {
-  const device = selectedDeviceId.value
-    ? store.deviceById.get(selectedDeviceId.value)
-    : undefined
-  return device?.ips[0] ?? ''
+const formDevicePrimaryIp = computed(() => {
+  const deviceId = editing.value?.deviceId ?? formDeviceId.value
+  return deviceId ? (store.deviceById.get(deviceId)?.ips[0] ?? '') : ''
 })
 
 watch(
   () => store.devices.map((device) => device.id).join(','),
   () => {
-    if (!store.devices.some((device) => device.id === selectedDeviceId.value)) {
-      selectedDeviceId.value = store.devices[0]?.id ?? null
+    if (
+      selectedDeviceId.value !== 'all' &&
+      !store.devices.some((device) => device.id === selectedDeviceId.value)
+    ) {
+      selectedDeviceId.value = 'all'
+    } else if (selectedDeviceId.value === 'all') {
+      void loadCredentials('all')
     }
   },
 )
@@ -64,19 +68,18 @@ watch(
   selectedDeviceId,
   (deviceId) => {
     for (const key of Object.keys(revealed)) delete revealed[Number(key)]
-    if (deviceId) {
-      void loadCredentials(deviceId)
-    } else {
-      credentials.value = []
-    }
+    void loadCredentials(deviceId)
   },
   { immediate: true },
 )
 
-async function loadCredentials(deviceId: number): Promise<void> {
+async function loadCredentials(deviceId: 'all' | number): Promise<void> {
   loading.value = true
   try {
-    credentials.value = await api.listCredentials(deviceId)
+    credentials.value =
+      deviceId === 'all'
+        ? await api.listAllCredentials()
+        : await api.listCredentials(deviceId)
   } catch (caught) {
     store.notify(caught instanceof Error ? caught.message : '加载凭据失败')
   } finally {
@@ -102,8 +105,31 @@ function effectiveAddress(credential: Credential): string {
   return device?.ips[0] ?? '—'
 }
 
+function deviceNameOf(deviceId: number): string {
+  return store.deviceById.get(deviceId)?.name ?? `#${deviceId}`
+}
+
+const displayCredentials = computed(() => {
+  const list = [...credentials.value]
+  if (selectedDeviceId.value !== 'all') return list
+
+  return list.sort((left, right) => {
+    const byDevice = deviceNameOf(left.deviceId).localeCompare(
+      deviceNameOf(right.deviceId),
+    )
+    if (byDevice !== 0) return byDevice
+    const byType = typeName(left.typeId).localeCompare(typeName(right.typeId))
+    if (byType !== 0) return byType
+    return left.id - right.id
+  })
+})
+
 function openCreate(): void {
   editing.value = null
+  formDeviceId.value =
+    selectedDeviceId.value === 'all'
+      ? (store.devices[0]?.id ?? null)
+      : selectedDeviceId.value
   form.typeId = String(store.credentialTypes[0]?.id ?? '')
   form.label = ''
   form.address = ''
@@ -120,6 +146,7 @@ function openCreate(): void {
 
 function openEdit(credential: Credential): void {
   editing.value = credential
+  formDeviceId.value = credential.deviceId
   form.typeId = String(credential.typeId)
   form.label = credential.label ?? ''
   form.address = credential.address ?? ''
@@ -135,7 +162,10 @@ function openEdit(credential: Credential): void {
 }
 
 async function submit(): Promise<void> {
-  if (!selectedDeviceId.value) return
+  if (!formDeviceId.value) {
+    formError.value = '请选择设备'
+    return
+  }
   if (!form.typeId) {
     formError.value = '请选择凭据类型'
     return
@@ -153,7 +183,7 @@ async function submit(): Promise<void> {
     }
 
     const input: CredentialInput = {
-      deviceId: selectedDeviceId.value,
+      deviceId: formDeviceId.value,
       typeId: Number(form.typeId),
       label: form.label.trim() || null,
       address: form.address.trim() || null,
@@ -175,7 +205,14 @@ async function submit(): Promise<void> {
     // Close the dialog before the global refresh so a slow refresh never
     // makes the save action look stuck.
     modalOpen.value = false
-    await loadCredentials(selectedDeviceId.value)
+    if (
+      selectedDeviceId.value !== 'all' &&
+      selectedDeviceId.value !== formDeviceId.value
+    ) {
+      selectedDeviceId.value = formDeviceId.value
+    } else {
+      await loadCredentials(selectedDeviceId.value)
+    }
     void store
       .refresh()
       .catch((caught) =>
@@ -241,12 +278,12 @@ async function copyPassword(credential: Credential): Promise<void> {
       </div>
       <div class="flex items-center gap-2">
         <select v-model="selectedDeviceId" class="input w-56">
-          <option :value="null" disabled>选择设备</option>
+          <option value="all">全部设备</option>
           <option v-for="device in store.devices" :key="device.id" :value="device.id">
             {{ device.name }}
           </option>
         </select>
-        <button class="btn btn-primary" :disabled="!selectedDeviceId" @click="openCreate">
+        <button class="btn btn-primary" :disabled="!store.devices.length" @click="openCreate">
           <Plus class="h-3.5 w-3.5" />
           新增凭据
         </button>
@@ -267,15 +304,16 @@ async function copyPassword(credential: Credential): Promise<void> {
     <div v-else class="card overflow-hidden">
       <div class="flex items-center justify-between border-b border-white/5 px-5 py-3.5">
         <p class="text-[11px] text-slate-500">
-          {{ loading ? '加载中…' : `${credentials.length} 条凭据` }}
+          {{ loading ? '加载中…' : `${displayCredentials.length} 条凭据` }}
         </p>
         <p class="text-[10px] text-slate-600">地址留空时自动使用设备主 IP</p>
       </div>
 
       <div class="overflow-x-auto">
-        <table v-if="credentials.length" class="w-full min-w-[56rem] text-left text-xs">
+        <table v-if="displayCredentials.length" class="w-full min-w-[56rem] text-left text-xs">
           <thead class="text-[10px] uppercase tracking-wider text-slate-500">
             <tr class="border-b border-white/5">
+              <th class="px-5 py-3 font-medium">设备</th>
               <th class="px-5 py-3 font-medium">类型</th>
               <th class="px-5 py-3 font-medium">标签</th>
               <th class="px-5 py-3 font-medium">地址</th>
@@ -288,10 +326,13 @@ async function copyPassword(credential: Credential): Promise<void> {
           </thead>
           <tbody>
             <tr
-              v-for="credential in credentials"
+              v-for="credential in displayCredentials"
               :key="credential.id"
               class="border-b border-white/[0.03] transition last:border-0 hover:bg-white/[0.02]"
             >
+              <td class="px-5 py-3 text-slate-300">
+                {{ deviceNameOf(credential.deviceId) }}
+              </td>
               <td class="px-5 py-3">
                 <span class="badge bg-white/5 text-slate-300 ring-white/10">
                   {{ typeName(credential.typeId) }}
@@ -386,6 +427,21 @@ async function copyPassword(credential: Credential): Promise<void> {
       @close="modalOpen = false"
     >
       <form class="space-y-4" @submit.prevent="submit">
+        <div>
+          <label class="label" for="credential-device">设备</label>
+          <select
+            id="credential-device"
+            v-model="formDeviceId"
+            class="input"
+            :disabled="Boolean(editing)"
+          >
+            <option :value="null" disabled>请选择设备</option>
+            <option v-for="device in store.devices" :key="device.id" :value="device.id">
+              {{ device.name }}
+            </option>
+          </select>
+        </div>
+
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="label" for="credential-type">凭据类型</label>
@@ -414,7 +470,11 @@ async function copyPassword(credential: Credential): Promise<void> {
               id="credential-address"
               v-model="form.address"
               class="input"
-              :placeholder="devicePrimaryIp ? `留空使用主 IP：${devicePrimaryIp}` : '留空使用设备主 IP'"
+              :placeholder="
+                formDevicePrimaryIp
+                  ? `留空使用主 IP：${formDevicePrimaryIp}`
+                  : '留空使用设备主 IP'
+              "
               autocomplete="off"
             />
           </div>

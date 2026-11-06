@@ -86,6 +86,7 @@ export const api = {
 
   listCredentials: (deviceId: number) =>
     call<Credential[]>('list_credentials', { deviceId }),
+  listAllCredentials: () => call<Credential[]>('list_all_credentials'),
   createCredential: (input: CredentialInput) =>
     call<Credential>('create_credential', { input }),
   updateCredential: (id: number, input: CredentialInput) =>
