@@ -720,7 +720,7 @@ async function exportData(): Promise<void> {
           <Github class="h-3.5 w-3.5" />
           github.com/guxin0123/Rack42
         </span>
-        <span class="text-[10px] text-slate-600">v0.1.0 · MIT</span>
+        <span class="text-[10px] text-slate-600">v1.0.0 · MIT</span>
       </div>
     </section>
 

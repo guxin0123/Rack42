@@ -1,6 +1,6 @@
 [package]
 name = "rack42"
-version = "0.1.0"
+version = "1.0.0"
 description = "Rack42 - local-first rack and infrastructure manager"
 authors = ["guxin0123"]
 edition = "2021"
