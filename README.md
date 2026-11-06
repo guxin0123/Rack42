@@ -7,11 +7,10 @@
 [![Rust](https://img.shields.io/badge/Rust-stable-000000?logo=rust)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4?logo=windows)](#环境要求)
 [![License](https://img.shields.io/badge/License-MIT-green)](#license)
+[![DeepSeek](https://img.shields.io/badge/Deepseek-V4.1_Falsh-green)](https://www.deepseek.com)
 
 <p align="center">
   <img src="assets/deepseek-xiao-fei-yu-tai-bang.webp" alt="DeepSeek 娘 Q 版鲸鱼女仆：小肥鱼太棒了！" width="260" />
-  <br />
-  <a href="https://www.deepseek.com"><img src="assets/deepseek-assisted.svg" alt="由 DeepSeek 辅助开发" height="44" /></a>
   <br />
   <sub>角色形象：上善无形（原作）· ZipZipPipe（女仆二次设计）· 图片来自 <a href="https://github.com/EDMOK/blue-fish-archive">EDMOK/blue-fish-archive</a> · <a href="assets/deepseek-xiao-fei-yu-tai-bang.LICENSE.txt">CC BY-NC-SA 4.0</a> · 非官方同人</sub>
 </p>
