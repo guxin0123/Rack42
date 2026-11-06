@@ -10,9 +10,9 @@
     "typecheck": "vue-tsc --noEmit",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "tauri:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-portable.ps1",
     "tauri:build:exe": "tauri build --no-bundle",
-    "tauri:build:cn": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tauri-build-mirror.ps1"
+    "tauri:build:debug": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-portable.ps1 -Debug"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

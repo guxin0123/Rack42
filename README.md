@@ -66,7 +66,7 @@ Rack42 面向单机或小团队使用场景，数据完全保存在本机，适�
 
 | 层级 | 选型 | 说明 |
 |---|---|---|
-| 桌面框架 | **Tauri 2.x** | 原生 `.exe` 交付，安装包小、内存占用低 |
+| 桌面框架 | **Tauri 2.x** | 原生 `.exe` 交付，压缩包小、内存占用低 |
 | 前端 | **Vue 3.5 + TypeScript + Vite** | 组合式 API（`<script setup>`），组件化与类型安全 |
 | 路由 | **Vue Router 5** | 官方路由，按页面拆分代码 |
 | 状态管理 | **Pinia 4** | Vue 官方状态管理，轻量、TS 友好 |
@@ -79,7 +79,7 @@ Rack42 面向单机或小团队使用场景，数据完全保存在本机，适�
 | 密码派生 | **Argon2id** | 主密码派生凭据加密密钥 |
 | 凭据加密 | **XChaCha20-Poly1305** | 随机 nonce，密文以 base64 存库 |
 | 密钥保管 | **仅内存**（锁定/退出即清除） | 主密码与密钥不落盘 |
-| 打包 | **Tauri Bundler** | 生成 NSIS / MSI 安装包 |
+| 打包 | **Tauri CLI + Compress-Archive** | 生成便携 exe 压缩包（不生成安装程序） |
 
 > **为什么是 Tauri 而不是 WPF/Electron？** 拓扑图与机架视图用 Web 技术实现效率最高（Vue Flow / SVG），Tauri 提供原生 `.exe` 与 Rust 侧加密能力，同时避免了 Electron 的体积与内存开销。
 
@@ -169,7 +169,7 @@ Rack42/
 | 项目 | 要求 |
 |---|---|
 | 操作系统 | Windows 10 1903+ / Windows 11 |
-| WebView2 | 运行时需存在（Win10/11 通常已预装，安装包可配置为自动下载） |
+| WebView2 | 运行时需存在（Win10/11 通常已预装；便携包不包含） |
 | Node.js | ≥ 20 LTS |
 | Rust | stable（通过 [rustup](https://rustup.rs) 安装） |
 | MSVC | Visual Studio 2022 Build Tools，勾选「使用 C++ 的桌面开发」 |
@@ -207,60 +207,26 @@ npm run dev
 
 ---
 
-## 构建安装包
+## 构建便携压缩包
 
 ```bash
 npm run tauri:build
 ```
 
-产物位于 `src-tauri/target/release/bundle/`：
+脚本会执行 `tauri build --no-bundle`，再把可执行文件、README、LICENSE 和一份使用说明打包为：
 
-- `nsis/Rack42_x.y.z_x64-setup.exe`
-- `msi/Rack42_x.y.z_x64_en-US.msi`
+```
+release/Rack42-<version>-windows-x64.zip
+```
 
-### 无法访问 GitHub 时
+项目不生成 NSIS / MSI 安装包，也不需要下载 WiX/NSIS 工具链。解压后双击 `Rack42.exe` 即可运行；首次启动可选择便携模式，数据会保存在程序目录的 `data/` 下。
 
-Tauri 首次打包会从 GitHub 下载 WiX（MSI）和 NSIS 工具链，缓存到
-`%LOCALAPPDATA%\tauri\`。如果构建卡在 `Downloading https://github.com/...`，可以：
+其他命令：
 
-1. **走镜像构建（推荐）**
+- `npm run tauri:build:exe`：只编译可执行文件（产物在 `src-tauri/target/release/`），不打包 zip；
+- `npm run tauri:build:debug`：调试构建并生成 `release/Rack42-<version>-windows-x64-debug.zip`。
 
-   ```bash
-   npm run tauri:build:cn
-   ```
-
-   默认镜像为 `https://gh-proxy.com`，也可以指定其他镜像：
-
-   ```powershell
-   powershell -File scripts/tauri-build-mirror.ps1 -Mirror https://ghproxy.net
-   ```
-
-   手动设置环境变量等价：
-
-   ```powershell
-   $env:TAURI_BUNDLER_TOOLS_GITHUB_MIRROR = 'https://gh-proxy.com'
-   npm run tauri:build
-   ```
-
-2. **只要 NSIS 安装包**（不触发 WiX 下载，但 NSIS 仍需联网下载一次）
-
-   ```bash
-   npx tauri build --bundles nsis
-   ```
-
-3. **只要可执行文件**（不生成安装包，完全不下载 WiX/NSIS）
-
-   ```bash
-   npm run tauri:build:exe
-   ```
-
-4. **完全离线**：将从任意渠道获得的 `wix314-binaries.zip` 解压到
-   `%LOCALAPPDATA%\tauri\WixTools314`；将 NSIS 3.13 解压为
-   `%LOCALAPPDATA%\tauri\NSIS`，并把 `nsis_tauri_utils.dll` 放到
-   `NSIS\Plugins\x86-unicode\additional\`。之后构建会直接复用缓存。
-
-> 以上镜像变量由 Tauri CLI 2.12+ 支持；也可以使用
-> `TAURI_BUNDLER_TOOLS_GITHUB_MIRROR_TEMPLATE` 指定完整 URL 模板。
+> WebView2 运行时需要系统已安装；Windows 10 1903+ / Windows 11 通常已预装。若面向干净系统分发，可在压缩包中附带 WebView2 安装程序并注明。
 
 ---
 
@@ -478,18 +444,17 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | 项目 | 说明 |
 |---|---|
 | 应用标识 | `com.guxin0123.rack42`（在 `tauri.conf.json` 中修改） |
-| 签名 | 生产环境建议配置代码签名证书，减少 SmartScreen 警告 |
+| 分发形式 | 便携 zip：`release/Rack42-<version>-windows-x64.zip`（exe + README + LICENSE + 使用说明），不含安装程序 |
+| 签名 | 如需发布到公网，可对 exe 做代码签名以减少 SmartScreen 警告 |
 | 更新 | 可选启用 `tauri-plugin-updater`，指向内网或自建静态更新源 |
-| 安装包 | NSIS 为主，MSI 供域环境批量部署 |
+
+`tauri.conf.json` 已关闭安装包构建：
 
 ```jsonc
-// tauri.conf.json 片段
 {
   "bundle": {
-    "targets": "all",
-    "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" }
-    }
+    "active": false,
+    "targets": []
   }
 }
 ```
@@ -504,7 +469,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | v0.2 | 凭据管理、连接关系、Vue Flow 拓扑图 |
 | v0.3 | 全局搜索、JSON 导出、拓扑布局持久化 |
 | v0.4 | 连接审计（已完成）、连通性探测、SQLCipher 整库加密 |
-| v1.0 | 安装包签名、自动更新、文档完善 |
+| v1.0 | 便携包签名、自动更新、文档完善 |
 
 ---
 
