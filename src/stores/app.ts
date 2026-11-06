@@ -9,6 +9,7 @@ import type {
   DeviceInput,
   Link,
   LinkInput,
+  OsFamilyInfo,
   Rack,
   RackInput,
   Stats,
@@ -30,6 +31,7 @@ export const useAppStore = defineStore('app', () => {
   const devices = ref<Device[]>([])
   const links = ref<Link[]>([])
   const credentialTypes = ref<CredentialType[]>([])
+  const osFamilies = ref<OsFamilyInfo[]>([])
   const deviceConnections = ref<DeviceConnectionSummary[]>([])
   const stats = ref<Stats>({
     rackCount: 0,
@@ -60,6 +62,7 @@ export const useAppStore = defineStore('app', () => {
       nextDevices,
       nextLinks,
       nextTypes,
+      nextOsFamilies,
       nextConnections,
       nextStats,
     ] = await Promise.all([
@@ -67,6 +70,7 @@ export const useAppStore = defineStore('app', () => {
       api.listDevices(),
       api.listLinks(),
       api.listCredentialTypes(),
+      api.listOsFamilies(),
       api.listDeviceConnections(),
       api.stats(),
     ])
@@ -74,6 +78,7 @@ export const useAppStore = defineStore('app', () => {
     devices.value = nextDevices
     links.value = nextLinks
     credentialTypes.value = nextTypes
+    osFamilies.value = nextOsFamilies
     deviceConnections.value = nextConnections
     stats.value = nextStats
   }
@@ -181,6 +186,7 @@ export const useAppStore = defineStore('app', () => {
     devices,
     links,
     credentialTypes,
+    osFamilies,
     deviceConnections,
     stats,
     notice,

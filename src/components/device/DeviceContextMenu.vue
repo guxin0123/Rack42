@@ -3,10 +3,7 @@ import { KeyRound, Link2, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 import { actionLabels } from '@/composables/useDeviceConnect'
-import {
-  credentialIconComponent,
-  isCustomCredentialIcon,
-} from '@/lib/credentialIcons'
+import { iconComponent, isCustomIcon } from '@/lib/icons'
 import {
   deviceKindLabel,
   deviceStatusLabel,
@@ -160,13 +157,13 @@ onBeforeUnmount(removeListeners)
             @click="emit('connect', type, action)"
           >
             <img
-              v-if="isCustomCredentialIcon(type.icon)"
+              v-if="isCustomIcon(type.icon)"
               :src="type.icon"
               alt=""
               class="h-3.5 w-3.5 shrink-0 rounded object-cover"
             />
             <component
-              :is="credentialIconComponent(type.icon)"
+              :is="iconComponent(type.icon)"
               v-else
               class="h-3.5 w-3.5 shrink-0"
             />

@@ -7,8 +7,7 @@ import Modal from '@/components/ui/Modal.vue'
 import { deviceKindMeta } from '@/lib/format'
 import { api } from '@/lib/ipc'
 import {
-  osFamilyGroups,
-  osFamilyOf,
+  detectOsFamily,
   osOptionsFor,
 } from '@/lib/os'
 import type {
@@ -110,7 +109,7 @@ const hostCandidates = computed(() =>
 )
 
 const currentOsOptions = computed(() => {
-  const options = osOptionsFor(form.osFamily)
+  const options = osOptionsFor(form.osFamily, store.osFamilies)
   if (form.os && !options.includes(form.os)) {
     return [form.os, ...options]
   }
@@ -152,7 +151,7 @@ watch(
     form.vendor = device?.vendor ?? ''
     form.model = device?.model ?? ''
     form.serial = device?.serial ?? ''
-    form.osFamily = device?.osFamily ?? osFamilyOf(device?.os)
+    form.osFamily = device?.osFamily ?? detectOsFamily(device?.os, store.osFamilies)
     form.os = device?.os ?? ''
     form.hostId = device?.hostId
       ? String(device.hostId)
@@ -302,7 +301,7 @@ function removeIp(index: number): void {
 }
 
 function onFamilyChange(): void {
-  const options = osOptionsFor(form.osFamily)
+  const options = osOptionsFor(form.osFamily, store.osFamilies)
   if (!options.includes(form.os)) {
     form.os = options[0] ?? ''
   }
@@ -579,8 +578,8 @@ async function submit(): Promise<void> {
               class="input"
               @change="onFamilyChange"
             >
-              <option v-for="group in osFamilyGroups" :key="group.value" :value="group.value">
-                {{ group.label }}
+              <option v-for="family in store.osFamilies" :key="family.slug" :value="family.slug">
+                {{ family.name }}
               </option>
             </select>
           </div>

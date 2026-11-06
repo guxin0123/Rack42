@@ -17,7 +17,6 @@ const KINDS: &[&str] = &[
 ];
 
 const STATUSES: &[&str] = &["active", "maintenance", "offline", "retired"];
-const OS_FAMILIES: &[&str] = &["windows", "linux", "other"];
 
 fn clean(value: &Option<String>) -> Option<&str> {
     value
@@ -54,14 +53,19 @@ fn normalize_ips(values: &[String]) -> AppResult<Vec<String>> {
     Ok(ips)
 }
 
-fn normalize_os_family(input: &DeviceInput) -> AppResult<Option<String>> {
+async fn normalize_os_family(pool: &SqlitePool, input: &DeviceInput) -> AppResult<Option<String>> {
     if clean(&input.os).is_none() {
         return Ok(None);
     }
 
     let family = input.os_family.as_deref().unwrap_or("other");
-    if !OS_FAMILIES.contains(&family) {
-        return Err(AppError::Validation("未知的操作系统大类".to_string()));
+    let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM os_families WHERE slug = ?")
+        .bind(family)
+        .fetch_one(pool)
+        .await?;
+
+    if exists == 0 {
+        return Err(AppError::Validation("未知的操作系统分类".to_string()));
     }
 
     Ok(Some(family.to_string()))
@@ -111,7 +115,7 @@ async fn prepare(
     }
 
     let ips = normalize_ips(&input.ips)?;
-    let os_family = normalize_os_family(input)?;
+    let os_family = normalize_os_family(pool, input).await?;
 
     match input.rack_id {
         Some(rack_id) => {

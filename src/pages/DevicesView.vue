@@ -16,11 +16,9 @@ import CredentialChooserModal from '@/components/device/CredentialChooserModal.v
 import DeviceContextMenu from '@/components/device/DeviceContextMenu.vue'
 import DeviceFormModal from '@/components/device/DeviceFormModal.vue'
 import { actionLabels, useDeviceConnect } from '@/composables/useDeviceConnect'
-import {
-  credentialIconComponent,
-  isCustomCredentialIcon,
-} from '@/lib/credentialIcons'
+import { iconComponent, isCustomIcon } from '@/lib/icons'
 import { api } from '@/lib/ipc'
+import { osFamilyInfo } from '@/lib/os'
 import {
   deviceKindLabel,
   deviceKindMeta,
@@ -76,6 +74,10 @@ let activeProbes = 0
 
 function deviceNameOf(deviceId: number): string {
   return store.deviceById.get(deviceId)?.name ?? ''
+}
+
+function deviceOsFamily(device: Device) {
+  return osFamilyInfo(device.osFamily, store.osFamilies)
 }
 
 function allConnectionTypes(deviceId: number): ConnectionTypeSummary[] {
@@ -494,6 +496,7 @@ async function removeDevice(device: Device): Promise<void> {
           <tr class="border-b border-white/5">
             <th class="px-5 py-3 font-medium">设备 / 虚拟机</th>
             <th class="px-5 py-3 font-medium">类型</th>
+            <th class="px-5 py-3 font-medium">操作系统</th>
             <th class="px-5 py-3 font-medium">管理 IP</th>
             <th class="px-5 py-3 font-medium">机柜 / U 位</th>
             <th class="px-5 py-3 font-medium">状态</th>
@@ -560,6 +563,22 @@ async function removeDevice(device: Device): Promise<void> {
               <span class="badge" :class="deviceKindMeta[row.device.kind]?.badge">
                 {{ deviceKindLabel(row.device.kind) }}
               </span>
+            </td>
+            <td class="px-5 py-3">
+              <span
+                v-if="row.device.os || deviceOsFamily(row.device)"
+                class="flex items-center gap-1.5 text-slate-400"
+                :title="deviceOsFamily(row.device)?.name ?? ''"
+              >
+                <component
+                  :is="iconComponent(deviceOsFamily(row.device)?.icon)"
+                  class="h-3.5 w-3.5 shrink-0 text-slate-500"
+                />
+                <span class="truncate text-[11px]">
+                  {{ row.device.os ?? deviceOsFamily(row.device)?.name ?? '—' }}
+                </span>
+              </span>
+              <span v-else class="text-slate-600">—</span>
             </td>
             <td class="px-5 py-3 font-mono text-[11px] text-slate-400">
               <span>{{ row.device.ips[0] ?? '—' }}</span>
@@ -647,13 +666,13 @@ async function removeDevice(device: Device): Promise<void> {
                       class="h-3.5 w-3.5 animate-spin"
                     />
                     <img
-                      v-else-if="isCustomCredentialIcon(type.icon)"
+                      v-else-if="isCustomIcon(type.icon)"
                       :src="type.icon"
                       alt=""
                       class="h-3.5 w-3.5 rounded object-cover"
                     />
                     <component
-                      :is="credentialIconComponent(type.icon)"
+                      :is="iconComponent(type.icon)"
                       v-else
                       class="h-3.5 w-3.5"
                     />

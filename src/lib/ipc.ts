@@ -18,6 +18,8 @@ import type {
   LayoutNode,
   Link,
   LinkInput,
+  OsFamilyInfo,
+  OsFamilyInput,
   Rack,
   RackInput,
   RackLayoutNode,
@@ -95,6 +97,13 @@ export const api = {
   listIpOverview: () => call<IpOverviewEntry[]>('list_ip_overview'),
   probeDevicePorts: (deviceId: number) =>
     call<DevicePortProbe>('probe_device_ports', { deviceId }),
+
+  listOsFamilies: () => call<OsFamilyInfo[]>('list_os_families'),
+  createOsFamily: (input: OsFamilyInput) =>
+    call<OsFamilyInfo>('create_os_family', { input }),
+  updateOsFamily: (id: number, input: OsFamilyInput) =>
+    call<OsFamilyInfo>('update_os_family', { id, input }),
+  deleteOsFamily: (id: number) => call<void>('delete_os_family', { id }),
   exportData: () => call<string>('export_data'),
 
   loadLayout: (view: string) => call<LayoutNode[]>('load_layout', { view }),

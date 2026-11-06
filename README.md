@@ -39,6 +39,7 @@ Rack42 面向单机或小团队使用场景，数据完全保存在本机，适�
 - [x] 设备列表右键菜单：连接、管理凭据、编辑、删除、为物理服务器添加虚拟机
 - [x] 设备列表连接按钮使用凭据类型图标（含自定义上传图标）
 - [x] 端口延迟探测：包含凭据的设备自动探测凭据端口（TCP，1.5 秒超时），列表显示最小延迟，悬停查看每个端口的结果
+- [x] 操作系统分类：设置中可新增/编辑分类、选择图标、维护具体系统列表；设备列表与拓扑显示分类图标
 - [x] IP 总览：按网段（IPv4 /24、IPv6 /64）汇总设备管理 IP 与凭据地址，可搜索
 - [x] 凭据类型管理：自定义类型、动作、默认端口、内置图标与 PNG/JPEG/WebP 自定义图标
 - [x] 连接审计：记录 RDP/Web/SSH/SFTP 的动作、设备、凭据、目标与结果，不记录密码或用户名
@@ -293,6 +294,17 @@ CREATE TABLE devices (
     note          TEXT,
     created_at    TEXT DEFAULT (datetime('now')),
     updated_at    TEXT DEFAULT (datetime('now'))
+);
+
+-- 操作系统分类（设置中可编辑；devices.os_family 保存 slug）
+CREATE TABLE os_families (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug       TEXT NOT NULL UNIQUE,
+    name       TEXT NOT NULL,
+    icon       TEXT NOT NULL DEFAULT 'monitor',
+    options    TEXT NOT NULL DEFAULT '[]',  -- JSON：具体系统列表
+    is_builtin INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0
 );
 
 -- 凭据类型（内置 RDP / SSH / iDRAC / ESXi / Web / 其他）

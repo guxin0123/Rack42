@@ -194,6 +194,10 @@ pub fn run() {
             commands::data::export_data,
             commands::ip::list_ip_overview,
             commands::probe::probe_device_ports,
+            commands::os_family::list_os_families,
+            commands::os_family::create_os_family,
+            commands::os_family::update_os_family,
+            commands::os_family::delete_os_family,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Rack42");

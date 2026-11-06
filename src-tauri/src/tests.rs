@@ -8,8 +8,11 @@ use crate::models::credential_type::CredentialTypeInput;
 use crate::models::device::DeviceInput;
 use crate::models::layout::{LayoutNode, RackLayoutNode};
 use crate::models::link::LinkInput;
+use crate::models::os_family::OsFamilyInput;
 use crate::models::rack::RackInput;
-use crate::repository::{credential_types, credentials, devices, ips, layout, links, racks};
+use crate::repository::{
+    credential_types, credentials, devices, ips, layout, links, os_families, racks,
+};
 use crate::ssh;
 
 async fn test_pool_without_migrations() -> SqlitePool {
@@ -835,6 +838,55 @@ async fn ip_overview_groups_devices_and_credential_addresses() {
         .iter()
         .filter(|row| row.ip.starts_with("10.1.2."))
         .all(|row| row.subnet == "10.1.2.0/24"));
+}
+
+#[tokio::test]
+async fn os_families_are_configurable_and_migrate_devices() {
+    let pool = test_pool().await;
+
+    let families = os_families::list(&pool).await.expect("list os families");
+    assert!(families.iter().any(|family| family.slug == "windows"));
+    assert!(families.iter().any(|family| family.slug == "other"));
+
+    let custom = os_families::create(
+        &pool,
+        &OsFamilyInput {
+            name: "网络设备".to_string(),
+            slug: None,
+            icon: Some("router".to_string()),
+            options: Some(vec!["Cisco IOS".to_string(), "Huawei VRP".to_string()]),
+            sort_order: Some(40),
+        },
+    )
+    .await
+    .expect("create custom os family");
+    assert_eq!(custom.icon, "router");
+    assert_eq!(custom.options, vec!["Cisco IOS", "Huawei VRP"]);
+
+    let mut input = device_input("net-switch", None, None, 1);
+    input.os = Some("Cisco IOS".to_string());
+    input.os_family = Some(custom.slug.clone());
+    let device = devices::create(&pool, &input)
+        .await
+        .expect("create device with custom os family");
+    assert_eq!(device.os_family.as_deref(), Some(custom.slug.as_str()));
+
+    let mut unknown = device_input("bad-os-family", None, None, 1);
+    unknown.os = Some("Something".to_string());
+    unknown.os_family = Some("not-a-family".to_string());
+    assert!(devices::create(&pool, &unknown).await.is_err());
+
+    let windows = families
+        .iter()
+        .find(|family| family.slug == "windows")
+        .expect("windows family");
+    assert!(os_families::delete(&pool, windows.id).await.is_err());
+
+    os_families::delete(&pool, custom.id)
+        .await
+        .expect("delete custom os family");
+    let reloaded = devices::get(&pool, device.id).await.expect("reload device");
+    assert_eq!(reloaded.os_family.as_deref(), Some("other"));
 }
 
 #[tokio::test]

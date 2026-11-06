@@ -8,7 +8,10 @@ import {
   deviceStatusMeta,
   deviceStatusLabel,
 } from '@/lib/format'
+import { iconComponent } from '@/lib/icons'
+import { osFamilyInfo } from '@/lib/os'
 import { useTopologyHighlight } from '@/composables/useTopologyHighlight'
+import { useAppStore } from '@/stores/app'
 import type { Device } from '@/lib/types'
 
 const props = defineProps<{
@@ -27,6 +30,15 @@ const variant = computed(() => props.data.variant ?? 'device')
 const childCount = computed(() => props.data.childCount ?? 0)
 const highlighted = useTopologyHighlight()
 const isHighlighted = computed(() => highlighted.value.has(device.value.id))
+
+const store = useAppStore()
+const osFamily = computed(() => osFamilyInfo(device.value.osFamily, store.osFamilies))
+const osIcon = computed(() => (osFamily.value ? iconComponent(osFamily.value.icon) : null))
+const osTitle = computed(() =>
+  osFamily.value
+    ? `${osFamily.value.name}${device.value.os ? ` · ${device.value.os}` : ''}`
+    : (device.value.os ?? ''),
+)
 </script>
 
 <template>
@@ -60,6 +72,9 @@ const isHighlighted = computed(() => highlighted.value.has(device.value.id))
         :style="{ color, backgroundColor: `${color}1f` }"
       >
         {{ deviceKindLabel(device.kind) }}
+      </span>
+      <span v-if="osIcon" class="shrink-0 text-slate-500" :title="osTitle">
+        <component :is="osIcon" class="h-3 w-3" />
       </span>
       <span
         class="ml-auto shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-400"
@@ -105,6 +120,9 @@ const isHighlighted = computed(() => highlighted.value.has(device.value.id))
       <span class="truncate text-[11px] font-medium text-slate-100">
         {{ device.name }}
       </span>
+      <span v-if="osIcon" class="shrink-0 text-slate-500" :title="osTitle">
+        <component :is="osIcon" class="h-3 w-3" />
+      </span>
       <span class="ml-auto shrink-0 text-[8px] uppercase tracking-wide text-slate-600">
         VM
       </span>
@@ -143,6 +161,9 @@ const isHighlighted = computed(() => highlighted.value.has(device.value.id))
       />
       <span class="truncate text-[11px] font-medium text-slate-100">
         {{ device.name }}
+      </span>
+      <span v-if="osIcon" class="shrink-0 text-slate-500" :title="osTitle">
+        <component :is="osIcon" class="h-3 w-3" />
       </span>
       <span
         class="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[8px]"
@@ -185,6 +206,9 @@ const isHighlighted = computed(() => highlighted.value.has(device.value.id))
       />
       <span class="truncate text-xs font-semibold text-slate-100">
         {{ device.name }}
+      </span>
+      <span v-if="osIcon" class="shrink-0 text-slate-500" :title="osTitle">
+        <component :is="osIcon" class="h-3 w-3" />
       </span>
       <span
         class="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[9px]"

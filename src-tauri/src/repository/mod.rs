@@ -4,6 +4,7 @@ pub mod devices;
 pub mod ips;
 pub mod layout;
 pub mod links;
+pub mod os_families;
 pub mod racks;
 pub mod settings;
 pub mod stats;

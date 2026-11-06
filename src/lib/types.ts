@@ -10,7 +10,25 @@ export type DeviceKind =
 
 export type DeviceStatus = 'active' | 'maintenance' | 'offline' | 'retired'
 
-export type OsFamily = 'windows' | 'linux' | 'other'
+export type OsFamily = string
+
+export interface OsFamilyInfo {
+  id: number
+  slug: string
+  name: string
+  icon: string
+  options: string[]
+  isBuiltin: boolean
+  sortOrder: number
+}
+
+export interface OsFamilyInput {
+  name: string
+  slug?: string | null
+  icon?: string | null
+  options?: string[]
+  sortOrder?: number | null
+}
 
 export type LinkType = 'ethernet' | 'fiber' | 'power' | 'mgmt'
 

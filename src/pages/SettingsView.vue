@@ -22,11 +22,8 @@ import {
 import { onMounted, reactive, ref } from 'vue'
 
 import Modal from '@/components/ui/Modal.vue'
-import {
-  credentialIconComponent,
-  credentialIconOptions,
-  isCustomCredentialIcon,
-} from '@/lib/credentialIcons'
+import OsFamilySettings from '@/components/settings/OsFamilySettings.vue'
+import { iconComponent, iconOptions, isCustomIcon } from '@/lib/icons'
 import { api } from '@/lib/ipc'
 import type {
   CredentialAction,
@@ -171,15 +168,7 @@ const actionOptions: Array<{ value: CredentialAction; label: string }> = [
   { value: 'web', label: 'Web' },
 ]
 
-const iconOptions = credentialIconOptions
-
-function typeIcon(icon: string) {
-  return credentialIconComponent(icon)
-}
-
-function isCustomIcon(icon: string): boolean {
-  return isCustomCredentialIcon(icon)
-}
+const typeIcon = iconComponent
 
 function onIconFile(event: Event): void {
   const input = event.target as HTMLInputElement
@@ -649,6 +638,8 @@ async function exportData(): Promise<void> {
         </table>
       </div>
     </section>
+
+    <OsFamilySettings />
 
     <section class="card p-5">
       <div class="flex items-center gap-3">
