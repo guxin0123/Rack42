@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -170,6 +170,10 @@ pub async fn cleanup_pending(pool: &SqlitePool) -> AppResult<()> {
             }
         }
 
+        if let Some(parent) = Path::new(&temp_path).parent() {
+            let _ = fs::remove_dir(parent);
+        }
+
         sqlx::query("DELETE FROM rdp_sessions WHERE id = ?")
             .bind(id)
             .execute(pool)
@@ -225,7 +229,8 @@ pub async fn connect_credential(
         ));
     }
 
-    let result = dispatch(state, action, &credential, &address, port).await;
+    let rdp_title = format!("{}-{}", device.name.trim(), address);
+    let result = dispatch(state, action, &credential, &address, port, &rdp_title).await;
     let target = audit_target(action, &address, port);
     let (result_label, detail) = match &result {
         Ok(_) => ("success", None),
@@ -258,6 +263,7 @@ async fn dispatch(
     credential: &crate::models::credential::Credential,
     address: &str,
     port: i64,
+    rdp_title: &str,
 ) -> AppResult<ConnectResult> {
     if action == "web" {
         let url = build_web_url(address, port)?;
@@ -313,7 +319,7 @@ async fn dispatch(
 
     let host = normalize_host(address)?;
     let target = format!("{host}:{port}");
-    let rdp_path = new_rdp_path(&state.data_dir)?;
+    let rdp_path = new_rdp_path(&state.data_dir, rdp_title)?;
 
     let username = credential.username.as_deref().unwrap_or("").trim();
     let domain = credential.domain.as_deref().unwrap_or("").trim();
@@ -353,10 +359,29 @@ async fn dispatch(
 
     let pool = state.db.clone();
     let cleanup_path = rdp_path.clone();
+    let window_title = rdp_title.to_string();
+    let process_id = child.id();
 
     std::thread::spawn(move || {
+        // mstsc keeps resetting its caption while connecting; keep the readable
+        // title pinned for the first minute, then just wait for the process.
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(60) {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    set_rdp_window_title(process_id, &window_title);
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+                Err(_) => break,
+            }
+        }
+
         let _ = child.wait();
         let _ = fs::remove_file(&cleanup_path);
+        if let Some(parent) = cleanup_path.parent() {
+            let _ = fs::remove_dir(parent);
+        }
         let _ = tauri::async_runtime::block_on(
             sqlx::query("DELETE FROM rdp_sessions WHERE id = ?")
                 .bind(session_id)
@@ -502,7 +527,32 @@ pub async fn clear_audit_logs(pool: &SqlitePool) -> AppResult<()> {
     Ok(())
 }
 
-fn new_rdp_path(data_dir: &Path) -> AppResult<PathBuf> {
+fn sanitize_rdp_title(value: &str) -> String {
+    let mut title: String = value
+        .chars()
+        .map(|ch| match ch {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            ch if ch.is_control() => '-',
+            ch => ch,
+        })
+        .collect();
+
+    title = title.trim_matches([' ', '.']).to_string();
+
+    const MAX_CHARS: usize = 120;
+    if title.chars().count() > MAX_CHARS {
+        title = title.chars().take(MAX_CHARS).collect();
+        title = title.trim_end_matches([' ', '.']).to_string();
+    }
+
+    if title.is_empty() {
+        "RDP".to_string()
+    } else {
+        title
+    }
+}
+
+fn new_rdp_path(data_dir: &Path, title: &str) -> AppResult<PathBuf> {
     let dir = data_dir.join("rdp");
     fs::create_dir_all(&dir)?;
 
@@ -511,8 +561,63 @@ fn new_rdp_path(data_dir: &Path) -> AppResult<PathBuf> {
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
 
-    Ok(dir.join(format!("rack42-{stamp}-{}.rdp", std::process::id())))
+    // The session directory keeps files unique; the file stem is the readable
+    // title that mstsc shows in its window caption.
+    let session_dir = dir.join(format!("{stamp}-{}", std::process::id()));
+    fs::create_dir_all(&session_dir)?;
+
+    Ok(session_dir.join(format!("{}.rdp", sanitize_rdp_title(title))))
 }
+
+#[cfg(windows)]
+fn set_rdp_window_title(process_id: u32, title: &str) {
+    use windows_sys::core::BOOL;
+    use windows_sys::Win32::Foundation::{HWND, LPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetClassNameW, GetWindowThreadProcessId, SetWindowTextW,
+    };
+
+    struct Search {
+        process_id: u32,
+        title: Vec<u16>,
+    }
+
+    unsafe extern "system" fn callback(window: HWND, lparam: LPARAM) -> BOOL {
+        let search = &mut *(lparam as *mut Search);
+
+        let mut process_id = 0u32;
+        GetWindowThreadProcessId(window, &mut process_id);
+        if process_id != search.process_id {
+            return 1;
+        }
+
+        let mut class = [0u16; 64];
+        let length = GetClassNameW(window, class.as_mut_ptr(), class.len() as i32);
+        if length <= 0 {
+            return 1;
+        }
+
+        let class_name = String::from_utf16_lossy(&class[..length as usize]);
+        if class_name.eq_ignore_ascii_case("TscShellContainerClass") {
+            SetWindowTextW(window, search.title.as_ptr());
+            return 0;
+        }
+
+        1
+    }
+
+    let mut search = Search {
+        process_id,
+        title: title.encode_utf16().chain(std::iter::once(0)).collect(),
+    };
+
+    unsafe {
+        EnumWindows(Some(callback), &mut search as *mut _ as LPARAM);
+    }
+}
+
+#[cfg(not(windows))]
+fn set_rdp_window_title(_: u32, _: &str) {}
 
 fn normalize_host(address: &str) -> AppResult<String> {
     let host = address.trim();
@@ -680,6 +785,33 @@ mod tests {
             "http://example.test/path"
         );
         assert!(build_web_url("file:///C:/test", 443).is_err());
+    }
+
+    #[test]
+    fn rdp_title_is_sanitized_for_file_names() {
+        assert_eq!(
+            sanitize_rdp_title("核心-服务器-10.0.0.1"),
+            "核心-服务器-10.0.0.1"
+        );
+        assert_eq!(sanitize_rdp_title("web/01:10.0.0.1"), "web-01-10.0.0.1");
+        assert_eq!(sanitize_rdp_title("  ...  "), "RDP");
+
+        let long = "a".repeat(200);
+        assert_eq!(sanitize_rdp_title(&long).chars().count(), 120);
+    }
+
+    #[test]
+    fn rdp_path_uses_readable_title() {
+        let dir = std::env::temp_dir().join(format!("rack42-rdp-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+
+        let path = new_rdp_path(&dir, "web-01-10.0.0.1").expect("rdp path");
+        assert_eq!(
+            path.file_stem().and_then(|value| value.to_str()),
+            Some("web-01-10.0.0.1")
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
