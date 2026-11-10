@@ -3,6 +3,7 @@ import {
   Activity,
   ChevronDown,
   ChevronRight,
+  Columns3,
   Loader2,
   Pencil,
   Plus,
@@ -56,6 +57,31 @@ const editing = ref<Device | null>(null)
 const formTab = ref<'basic' | 'credentials'>('basic')
 const formKind = ref<DeviceKind | undefined>(undefined)
 const formHostId = ref<number | null>(null)
+
+const COLUMNS_STORAGE_KEY = 'rack42.device-columns'
+const columns = reactive({ status: false, vendor: false })
+
+try {
+  const saved = localStorage.getItem(COLUMNS_STORAGE_KEY)
+  if (saved) {
+    const parsed = JSON.parse(saved) as { status?: boolean; vendor?: boolean }
+    columns.status = parsed.status === true
+    columns.vendor = parsed.vendor === true
+  }
+} catch {
+  // Ignore invalid local preferences and keep the defaults.
+}
+
+watch(
+  columns,
+  () => {
+    localStorage.setItem(
+      COLUMNS_STORAGE_KEY,
+      JSON.stringify({ status: columns.status, vendor: columns.vendor }),
+    )
+  },
+  { deep: true },
+)
 
 const menuOpen = ref(false)
 const menuPosition = reactive({ x: 0, y: 0 })
@@ -488,6 +514,42 @@ async function removeDevice(device: Device): Promise<void> {
         <Activity class="h-3.5 w-3.5" />
         刷新延迟
       </button>
+
+      <details class="relative">
+        <summary
+          class="btn btn-ghost cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden"
+        >
+          <Columns3 class="h-3.5 w-3.5" />
+          列
+        </summary>
+        <div
+          class="absolute right-0 z-30 mt-1 w-48 rounded-lg border border-white/10 bg-slate-900 p-2 shadow-xl"
+        >
+          <p class="px-2 pb-1 text-[10px] uppercase tracking-wide text-slate-500">
+            显示列
+          </p>
+          <label
+            class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-slate-300 hover:bg-white/5"
+          >
+            <input
+              v-model="columns.status"
+              type="checkbox"
+              class="h-3.5 w-3.5 accent-emerald-500"
+            />
+            状态
+          </label>
+          <label
+            class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-slate-300 hover:bg-white/5"
+          >
+            <input
+              v-model="columns.vendor"
+              type="checkbox"
+              class="h-3.5 w-3.5 accent-emerald-500"
+            />
+            厂商 / 型号
+          </label>
+        </div>
+      </details>
     </div>
 
     <div class="card overflow-x-auto">
@@ -499,9 +561,9 @@ async function removeDevice(device: Device): Promise<void> {
             <th class="px-5 py-3 font-medium">操作系统</th>
             <th class="px-5 py-3 font-medium">管理 IP</th>
             <th class="px-5 py-3 font-medium">机柜 / U 位</th>
-            <th class="px-5 py-3 font-medium">状态</th>
+            <th v-if="columns.status" class="px-5 py-3 font-medium">状态</th>
             <th class="px-5 py-3 font-medium">端口延迟</th>
-            <th class="px-5 py-3 font-medium">厂商 / 型号</th>
+            <th v-if="columns.vendor" class="px-5 py-3 font-medium">厂商 / 型号</th>
             <th class="px-5 py-3 text-right font-medium">操作</th>
           </tr>
         </thead>
@@ -604,7 +666,7 @@ async function removeDevice(device: Device): Promise<void> {
               </template>
               <span v-else class="text-slate-600">未分配</span>
             </td>
-            <td class="px-5 py-3">
+            <td v-if="columns.status" class="px-5 py-3">
               <span class="flex items-center gap-1.5 text-slate-400">
                 <span
                   class="h-1.5 w-1.5 rounded-full"
@@ -644,7 +706,7 @@ async function removeDevice(device: Device): Promise<void> {
               </template>
               <span v-else class="text-[10px] text-slate-600">—</span>
             </td>
-            <td class="px-5 py-3 text-slate-400">
+            <td v-if="columns.vendor" class="px-5 py-3 text-slate-400">
               {{ [row.device.vendor, row.device.model].filter(Boolean).join(' ') || '—' }}
             </td>
             <td class="px-5 py-3" @dblclick.stop>
