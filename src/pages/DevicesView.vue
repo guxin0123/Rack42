@@ -59,14 +59,40 @@ const formKind = ref<DeviceKind | undefined>(undefined)
 const formHostId = ref<number | null>(null)
 
 const COLUMNS_STORAGE_KEY = 'rack42.device-columns'
-const columns = reactive({ status: false, vendor: false })
+const DEFAULT_COLUMNS = {
+  kind: true,
+  os: true,
+  ips: true,
+  rack: true,
+  status: false,
+  latency: true,
+  vendor: false,
+  actions: true,
+}
+type ColumnKey = keyof typeof DEFAULT_COLUMNS
+
+const columns = reactive({ ...DEFAULT_COLUMNS })
+
+const columnOptions: Array<{ key: ColumnKey; label: string }> = [
+  { key: 'kind', label: '类型' },
+  { key: 'os', label: '操作系统' },
+  { key: 'ips', label: '管理 IP' },
+  { key: 'rack', label: '机柜 / U 位' },
+  { key: 'status', label: '状态' },
+  { key: 'latency', label: '端口延迟' },
+  { key: 'vendor', label: '厂商 / 型号' },
+  { key: 'actions', label: '操作' },
+]
 
 try {
   const saved = localStorage.getItem(COLUMNS_STORAGE_KEY)
   if (saved) {
-    const parsed = JSON.parse(saved) as { status?: boolean; vendor?: boolean }
-    columns.status = parsed.status === true
-    columns.vendor = parsed.vendor === true
+    const parsed = JSON.parse(saved) as Partial<Record<ColumnKey, unknown>>
+    for (const key of Object.keys(DEFAULT_COLUMNS) as ColumnKey[]) {
+      if (typeof parsed[key] === 'boolean') {
+        columns[key] = parsed[key]
+      }
+    }
   }
 } catch {
   // Ignore invalid local preferences and keep the defaults.
@@ -75,10 +101,7 @@ try {
 watch(
   columns,
   () => {
-    localStorage.setItem(
-      COLUMNS_STORAGE_KEY,
-      JSON.stringify({ status: columns.status, vendor: columns.vendor }),
-    )
+    localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(columns))
   },
   { deep: true },
 )
@@ -529,24 +552,16 @@ async function removeDevice(device: Device): Promise<void> {
             显示列
           </p>
           <label
+            v-for="option in columnOptions"
+            :key="option.key"
             class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-slate-300 hover:bg-white/5"
           >
             <input
-              v-model="columns.status"
+              v-model="columns[option.key]"
               type="checkbox"
               class="h-3.5 w-3.5 accent-emerald-500"
             />
-            状态
-          </label>
-          <label
-            class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-slate-300 hover:bg-white/5"
-          >
-            <input
-              v-model="columns.vendor"
-              type="checkbox"
-              class="h-3.5 w-3.5 accent-emerald-500"
-            />
-            厂商 / 型号
+            {{ option.label }}
           </label>
         </div>
       </details>
@@ -557,14 +572,14 @@ async function removeDevice(device: Device): Promise<void> {
         <thead class="text-[10px] uppercase tracking-wider text-slate-500">
           <tr class="border-b border-white/5">
             <th class="px-5 py-3 font-medium">设备 / 虚拟机</th>
-            <th class="px-5 py-3 font-medium">类型</th>
-            <th class="px-5 py-3 font-medium">操作系统</th>
-            <th class="px-5 py-3 font-medium">管理 IP</th>
-            <th class="px-5 py-3 font-medium">机柜 / U 位</th>
+            <th v-if="columns.kind" class="px-5 py-3 font-medium">类型</th>
+            <th v-if="columns.os" class="px-5 py-3 font-medium">操作系统</th>
+            <th v-if="columns.ips" class="px-5 py-3 font-medium">管理 IP</th>
+            <th v-if="columns.rack" class="px-5 py-3 font-medium">机柜 / U 位</th>
             <th v-if="columns.status" class="px-5 py-3 font-medium">状态</th>
-            <th class="px-5 py-3 font-medium">端口延迟</th>
+            <th v-if="columns.latency" class="px-5 py-3 font-medium">端口延迟</th>
             <th v-if="columns.vendor" class="px-5 py-3 font-medium">厂商 / 型号</th>
-            <th class="px-5 py-3 text-right font-medium">操作</th>
+            <th v-if="columns.actions" class="px-5 py-3 text-right font-medium">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -621,12 +636,12 @@ async function removeDevice(device: Device): Promise<void> {
                 </div>
               </div>
             </td>
-            <td class="px-5 py-3">
+            <td v-if="columns.kind" class="px-5 py-3">
               <span class="badge" :class="deviceKindMeta[row.device.kind]?.badge">
                 {{ deviceKindLabel(row.device.kind) }}
               </span>
             </td>
-            <td class="px-5 py-3">
+            <td v-if="columns.os" class="px-5 py-3">
               <span
                 v-if="row.device.os || deviceOsFamily(row.device)"
                 class="flex items-center gap-1.5 text-slate-400"
@@ -642,7 +657,7 @@ async function removeDevice(device: Device): Promise<void> {
               </span>
               <span v-else class="text-slate-600">—</span>
             </td>
-            <td class="px-5 py-3 font-mono text-[11px] text-slate-400">
+            <td v-if="columns.ips" class="px-5 py-3 font-mono text-[11px] text-slate-400">
               <span>{{ row.device.ips[0] ?? '—' }}</span>
               <span
                 v-if="row.device.ips.length > 1"
@@ -652,7 +667,7 @@ async function removeDevice(device: Device): Promise<void> {
                 +{{ row.device.ips.length - 1 }}
               </span>
             </td>
-            <td class="px-5 py-3 text-slate-400">
+            <td v-if="columns.rack" class="px-5 py-3 text-slate-400">
               <template v-if="row.device.rackId">
                 <span class="text-slate-300">
                   {{ store.rackById.get(row.device.rackId)?.name ?? '—' }}
@@ -675,7 +690,7 @@ async function removeDevice(device: Device): Promise<void> {
                 {{ deviceStatusLabel(row.device.status) }}
               </span>
             </td>
-            <td class="px-5 py-3">
+            <td v-if="columns.latency" class="px-5 py-3">
               <template v-if="hasCredentials(row.device.id)">
                 <span
                   v-if="latencyLoading.has(row.device.id)"
@@ -709,7 +724,7 @@ async function removeDevice(device: Device): Promise<void> {
             <td v-if="columns.vendor" class="px-5 py-3 text-slate-400">
               {{ [row.device.vendor, row.device.model].filter(Boolean).join(' ') || '—' }}
             </td>
-            <td class="px-5 py-3" @dblclick.stop>
+            <td v-if="columns.actions" class="px-5 py-3" @dblclick.stop>
               <div class="flex justify-end gap-1">
                 <template
                   v-for="type in connectionTypes(row.device.id)"
